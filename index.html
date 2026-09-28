@@ -1,0 +1,2382 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<script>
+  // Block Netlify Identity widget auto-injection
+  window.netlifyIdentity = { on: function(){}, open: function(){}, close: function(){}, currentUser: function(){ return null; } };
+</script>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#13233B">
+<title>Boye's Ops</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@75..100,400..900&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --navy:#13233B; --navy-2:#1C3153; --red:#D43E3E; --gold:#E3B23C;
+    --bg:#F3F1EC; --card:#FFFFFF; --ink:#1B2432; --ink-2:#5B6472;
+    --line:#E3DFD5; --ok:#1E7A46; --ok-bg:#E8F4ED; --warn:#B3541E;
+    --r:14px; --shadow:0 1px 2px rgba(19,35,59,.08),0 4px 14px rgba(19,35,59,.06);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{-webkit-text-size-adjust:100%}
+  body{font-family:'Archivo',system-ui,sans-serif;background:var(--bg);color:var(--ink);
+       font-size:16px;line-height:1.5;min-height:100dvh}
+  button{font:inherit;cursor:pointer;border:none;background:none;color:inherit}
+  button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
+  input,select,textarea{font:inherit}
+  .hide{display:none!important}
+
+  /* ---------- LOGIN ---------- */
+  .login{min-height:100dvh;display:flex;flex-direction:column;align-items:center;justify-content:center;
+         background:var(--navy);color:#fff;padding:24px;gap:8px}
+  .wordmark{font-variation-settings:'wdth' 78,'wght' 900;text-transform:uppercase;letter-spacing:.04em;
+            font-size:clamp(32px,7vw,44px);line-height:1}
+  .wordmark .accent{color:var(--gold)}
+  /* El aro exterior del emblema es del mismo azul que el encabezado, así que
+     sobre el azul perdía su forma. El halo blanco sigue el contorno real del
+     logotipo (no un círculo, que no le queda) y se lo devuelve. */
+  .emblema{display:block;width:auto;flex:none;
+           filter:drop-shadow(0 0 1px rgba(255,255,255,.8)) drop-shadow(0 0 2px rgba(255,255,255,.45))}
+  .login .emblema{height:104px;margin-bottom:14px}
+  .bar .emblema{height:34px}
+  @media(max-width:380px){ .bar .emblema{height:29px} }
+  .login .sub{color:#B9C4D6;font-size:15px;margin-bottom:22px;letter-spacing:.12em;text-transform:uppercase}
+  .pin-dots{display:flex;gap:14px;margin:10px 0 24px;min-height:16px}
+  .pin-dots span{width:16px;height:16px;border-radius:50%;border:2px solid #8DA0BF;transition:background .15s}
+  .pin-dots span.full{background:var(--gold);border-color:var(--gold)}
+  .pad{display:grid;grid-template-columns:repeat(3,minmax(76px,88px));gap:12px}
+  .pad button{height:72px;border-radius:16px;background:var(--navy-2);color:#fff;font-size:26px;font-weight:600;
+              transition:transform .12s,background .12s}
+  .pad button:active{transform:scale(.96);background:#27436E}
+  .pad .util{font-size:15px;font-weight:500;color:#B9C4D6}
+  .pad .go{background:var(--gold);color:var(--navy);font-weight:800}
+  .login-err{color:#FFB4B4;min-height:24px;font-size:15px}
+
+  /* ---------- APP SHELL ---------- */
+  header.app{background:var(--navy);color:#fff;padding:calc(env(safe-area-inset-top) + 12px) 16px 0}
+  .bar{display:flex;align-items:center;gap:12px;max-width:960px;margin:0 auto;padding-bottom:10px}
+  .bar .wordmark{font-size:20px}
+  .bar .who{margin-left:auto;text-align:right;font-size:13px;line-height:1.3;color:#C6D0E0}
+  .bar .who b{display:block;color:#fff;font-size:14px}
+  .bar .out{min-width:44px;min-height:44px;display:grid;place-items:center;border-radius:10px;color:#C6D0E0}
+  .bar .out:active{background:var(--navy-2)}
+  .tabs{display:flex;max-width:960px;margin:0 auto;overflow-x:auto}
+  .tabs button{flex:1;min-height:48px;min-width:max-content;padding:0 12px;font-weight:600;font-size:14px;color:#9FB0C9;
+               border-bottom:3px solid transparent;text-transform:uppercase;letter-spacing:.05em;white-space:nowrap}
+  .tabs button[aria-selected="true"]{color:#fff;border-color:var(--gold)}
+  @media(max-width:768px){header.app .tabs{display:none}}
+  @media(max-width:768px){main#main{padding-bottom:calc(68px + env(safe-area-inset-bottom))}}
+  .tabs-mobile{display:none;position:fixed;bottom:0;left:0;right:0;z-index:200;
+    background:var(--navy);border-top:1px solid rgba(255,255,255,.12);
+    padding-bottom:env(safe-area-inset-bottom);box-shadow:0 -2px 20px rgba(19,35,59,.4)}
+  @media(max-width:768px){.tabs-mobile{display:flex}}
+  .tabs-mobile button{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    gap:2px;min-height:58px;padding:6px 2px;font-size:9px;font-weight:800;color:rgba(255,255,255,.4);
+    text-transform:uppercase;letter-spacing:.03em;border:none;background:transparent;
+    touch-action:manipulation;-webkit-tap-highlight-color:transparent;transition:color .15s}
+  .tabs-mobile button svg{width:22px;height:22px;flex:none}
+  .tabs-mobile button[aria-selected="true"]{color:var(--gold)}
+  main{max-width:960px;margin:0 auto;padding:16px 16px calc(env(safe-area-inset-bottom) + 32px)}
+
+  /* progress rail */
+  .rail{background:var(--card);border-radius:var(--r);box-shadow:var(--shadow);padding:14px 16px;margin-bottom:16px}
+  .rail .row{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px}
+  .rail .date{font-size:14px;color:var(--ink-2);text-transform:capitalize}
+  .rail .count{font-variation-settings:'wdth' 80,'wght' 800;font-size:22px}
+  .track{height:10px;border-radius:6px;background:var(--line);overflow:hidden}
+  .fill{height:100%;border-radius:6px;background:var(--gold);transition:width .3s ease-out;width:0}
+  .fill.done{background:var(--ok)}
+
+  /* sections + task tiles */
+  .sec{margin:22px 0 10px;display:flex;align-items:center;gap:10px}
+  .sec h2{font-variation-settings:'wdth' 78,'wght' 800;text-transform:uppercase;letter-spacing:.08em;
+          font-size:14px;color:var(--navy)}
+  .sec::after{content:"";flex:1;height:2px;background:var(--line)}
+  .task{width:100%;text-align:left;background:var(--card);border-radius:var(--r);box-shadow:var(--shadow);
+        display:flex;align-items:center;gap:14px;padding:14px 16px;margin-bottom:10px;min-height:64px;
+        border-left:4px solid transparent;transition:transform .12s}
+  .task:active{transform:scale(.99)}
+  .task .box{flex:none;width:30px;height:30px;border-radius:9px;border:2.5px solid #B9BFC9;display:grid;place-items:center;background:#fff}
+  .task.is-done{background:var(--ok-bg);border-left-color:var(--ok)}
+  .task.is-done .box{background:var(--ok);border-color:var(--ok)}
+  .task.is-done .t{color:var(--ink-2)}
+  .task .t{font-weight:600;font-size:16px}
+  .task .d{font-size:14px;color:var(--ink-2);margin-top:2px}
+  .task .meta{font-size:13px;color:var(--ok);margin-top:2px;font-weight:500}
+  .task.overdue{border-left-color:var(--red)}
+  .task .due-chip{margin-left:auto;flex:none;font-size:13px;font-weight:700;padding:6px 10px;border-radius:999px;background:#EFEBE0;color:var(--ink-2)}
+  .task.overdue .due-chip{background:#FBE4E4;color:var(--red)}
+  .empty{background:var(--card);border-radius:var(--r);box-shadow:var(--shadow);padding:28px 20px;text-align:center;color:var(--ink-2)}
+  .empty b{display:block;color:var(--ink);margin-bottom:4px}
+
+  /* admin ops */
+  .loc-grid{display:grid;gap:12px;grid-template-columns:1fr}
+  @media(min-width:640px){.loc-grid{grid-template-columns:1fr 1fr}}
+  .loc-card{background:var(--card);border-radius:var(--r);box-shadow:var(--shadow);padding:16px;text-align:left;width:100%}
+  .loc-card h3{font-variation-settings:'wdth' 78,'wght' 800;text-transform:uppercase;letter-spacing:.05em;font-size:16px;color:var(--navy);margin-bottom:6px}
+  .loc-card .big{font-variation-settings:'wdth' 80,'wght' 800;font-size:30px}
+  .loc-card .lbl{font-size:13px;color:var(--ink-2);margin-bottom:10px}
+  .pill{display:inline-block;font-size:13px;font-weight:700;border-radius:999px;padding:4px 10px;margin-top:10px}
+  .pill.warn{background:#FBE4E4;color:var(--red)}
+  .pill.ok{background:var(--ok-bg);color:var(--ok)}
+  .switch{display:flex;gap:8px;margin-bottom:16px}
+  .switch button{flex:1;min-height:48px;border-radius:12px;background:#E7E3D9;font-weight:700;color:var(--ink-2)}
+  .switch button[aria-pressed="true"]{background:var(--navy);color:#fff}
+  .subnav{display:flex;gap:8px;margin-bottom:16px;overflow-x:auto;-webkit-overflow-scrolling:touch;flex-wrap:nowrap;scrollbar-width:none;padding-bottom:4px}
+  .subnav::-webkit-scrollbar{display:none}
+  .subnav button{flex:none;white-space:nowrap}
+  .subnav button{flex:1;min-height:44px;border-radius:12px;background:#E7E3D9;font-weight:700;font-size:14px;color:var(--ink-2)}
+  .subnav button[aria-pressed="true"]{background:var(--gold);color:var(--navy)}
+
+  /* forms */
+  .panel{background:var(--card);border-radius:var(--r);box-shadow:var(--shadow);padding:16px;display:grid;gap:14px;margin-bottom:16px}
+  @media(max-width:420px){.panel{padding:12px;border-radius:12px}}
+  .panel label{display:grid;gap:6px;font-size:14px;font-weight:600;color:var(--ink)}
+  .panel input,.panel select,.panel textarea{
+    min-height:48px;border:1.5px solid var(--line);border-radius:10px;padding:10px 12px;background:#FBFAF7;font-size:16px;width:100%}
+  .panel textarea{min-height:64px;resize:vertical}
+  .frm-row{display:grid;gap:14px;grid-template-columns:1fr 1fr}
+  @media(max-width:640px){.frm-row{grid-template-columns:1fr}}
+  .frm-row-3{display:grid;gap:14px;grid-template-columns:1fr 1fr 1fr}
+  @media(max-width:640px){.frm-row-3{grid-template-columns:1fr 1fr}}
+  @media(max-width:400px){.frm-row-3{grid-template-columns:1fr}}
+  .btn-primary{min-height:52px;border-radius:12px;background:var(--red);color:#fff;font-weight:700;font-size:16px;
+               text-transform:uppercase;letter-spacing:.05em;padding:0 18px}
+  .btn-primary:active{transform:scale(.98)}
+  .btn-quiet{min-height:44px;border-radius:10px;background:#E7E3D9;color:var(--ink);font-weight:600;padding:0 14px}
+  .hint{font-size:13px;color:var(--ink-2);font-weight:400}
+
+  /* finance */
+  .kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px}
+  @media(max-width:640px){.kpis{grid-template-columns:1fr 1fr}}
+  @media(max-width:360px){.kpis{grid-template-columns:1fr}}
+  .kpi{background:var(--card);border-radius:var(--r);box-shadow:var(--shadow);padding:12px 14px}
+  .kpi .l{font-size:13px;color:var(--ink-2);font-weight:600;text-transform:uppercase;letter-spacing:.05em}
+  .kpi .v{font-variation-settings:'wdth' 80,'wght' 800;font-size:22px;font-variant-numeric:tabular-nums}
+  .kpi.in .v{color:var(--ok)} .kpi.out-k .v{color:var(--red)}
+  .toolbar{display:flex;gap:10px;align-items:center;margin-bottom:16px;flex-wrap:wrap}
+  .toolbar input[type=month],.toolbar input[type=date]{min-height:48px;border:1.5px solid var(--line);border-radius:10px;padding:8px 12px;background:var(--card);font-size:16px}
+  .txrow{display:flex;align-items:center;gap:12px;background:var(--card);border-radius:12px;box-shadow:var(--shadow);
+         padding:12px 14px;margin-bottom:8px;border-left:4px solid var(--ok)}
+  .txrow.eg{border-left-color:var(--red)}
+  .txrow .c{flex:1;min-width:0}
+  .txrow .t{font-weight:600;font-size:15px;overflow-wrap:anywhere}
+  .txrow .m{font-size:13px;color:var(--ink-2)}
+  .txrow .amt{font-variant-numeric:tabular-nums;font-weight:800;font-size:16px;color:var(--ok);white-space:nowrap}
+  .txrow.eg .amt{color:var(--red)}
+  .txrow .del{min-width:44px;min-height:44px;display:grid;place-items:center;border-radius:10px;color:var(--ink-2)}
+  .txrow .del:active{background:#F0EDE5}
+  .cat-chip{display:inline-block;font-size:12px;font-weight:700;background:#EFEBE0;color:var(--ink-2);border-radius:999px;padding:2px 8px;text-transform:capitalize}
+  .datehead{font-size:13px;font-weight:700;color:var(--ink-2);text-transform:capitalize;margin:16px 0 8px}
+
+  table.pay{width:100%;border-collapse:collapse;background:var(--card);border-radius:var(--r);box-shadow:var(--shadow);overflow:hidden}
+  table.pay th{background:var(--navy);color:#fff;font-size:13px;text-transform:uppercase;letter-spacing:.05em;padding:10px 8px;text-align:left}
+  table.pay td{padding:8px;border-bottom:1px solid var(--line);vertical-align:middle}
+  table.pay td input{width:100%;min-width:76px;min-height:44px;border:1.5px solid var(--line);border-radius:8px;padding:6px 8px;background:#FBFAF7;font-size:15px;font-variant-numeric:tabular-nums;text-align:right}
+  table.pay .nm{font-weight:600;font-size:15px}
+  table.pay .ps{font-size:13px;color:var(--ink-2)}
+  table.pay .tot{font-weight:800;font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
+  table.pay tfoot td{font-weight:800;background:#FBF7EC}
+  input.nospin::-webkit-outer-spin-button,input.nospin::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+  input.nospin{-moz-appearance:textfield;appearance:textfield}
+  /* placeholder looks like a real zero, not grayed out */
+  input.nospin::placeholder{color:var(--ink);opacity:.55}
+  input.nospin:focus::placeholder{opacity:.3}
+  input.nospin:focus{background:#FFFDF5;outline:2px solid var(--gold)}
+  .pay-wrap{overflow-x:auto;margin-bottom:16px}
+  .weeknav{display:flex;align-items:center;gap:8px;margin-bottom:16px}
+  .weeknav>button{min-width:48px;min-height:48px;font-size:22px;border-radius:12px;touch-action:manipulation;display:grid;place-items:center}
+  .weeknav b{flex:1;text-align:center;font-size:14px}
+  .weeknav b{flex:1;text-align:center;font-size:15px}
+  .weeknav button{min-width:48px;min-height:48px;border-radius:12px;background:var(--card);box-shadow:var(--shadow);font-size:20px;font-weight:700}
+  .saved-flag{font-size:13px;font-weight:700;color:var(--ok)}
+  .bars{display:grid;gap:8px}
+  .bars .b{display:grid;grid-template-columns:130px 1fr auto;gap:10px;align-items:center;font-size:14px}
+  .bars .bar-track{height:12px;border-radius:6px;background:var(--line);overflow:hidden}
+  .bars .bar-fill{height:100%;background:var(--red);border-radius:6px}
+  .bars .amt2{font-variant-numeric:tabular-nums;font-weight:700;white-space:nowrap}
+
+  /* recurring rounds */
+  .task.rec{flex-wrap:wrap;cursor:default}
+  .task.rec:active{transform:none}
+  .slots{display:flex;flex-wrap:wrap;gap:8px;width:100%;margin-top:10px}
+  .slot-btn{min-width:70px;min-height:46px;border-radius:10px;font-weight:700;font-size:15px;font-variant-numeric:tabular-nums;
+            background:#EFEBE0;color:var(--ink-2);border:2px solid transparent;display:inline-flex;align-items:center;justify-content:center;gap:5px}
+  .slot-btn.future{opacity:.45}
+  .slot-btn.done{background:var(--ok-bg);color:var(--ok);border-color:var(--ok)}
+  .slot-btn.missed{background:#FBE4E4;color:var(--red);border-color:#F3C2C2}
+  .slot-btn.now{background:var(--gold);color:var(--navy);animation:pulse 1.6s ease-in-out infinite}
+  @keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(227,178,60,.55)}50%{box-shadow:0 0 0 9px rgba(227,178,60,0)}}
+  .alarm-banner{position:sticky;top:0;z-index:40;background:var(--red);color:#fff;border-radius:12px;box-shadow:var(--shadow);
+                padding:12px 16px;margin-bottom:14px;display:flex;align-items:center;gap:12px;font-weight:700}
+  .alarm-banner .go2{margin-left:auto;background:#fff;color:var(--red);border-radius:10px;min-height:44px;padding:0 14px;font-weight:800}
+  .arm-note{background:#FFF6E2;border:1.5px solid var(--gold);border-radius:12px;padding:12px 14px;margin-bottom:14px;
+            display:flex;align-items:center;gap:10px;font-size:14px;font-weight:600}
+  .arm-note button{margin-left:auto;background:var(--navy);color:#fff;border-radius:10px;min-height:44px;padding:0 14px;font-weight:700;white-space:nowrap}
+  .bell.on{color:var(--gold)}
+
+  /* checador / payroll engine */
+  .mode-tabs{display:flex;gap:8px;margin-bottom:16px}
+  .mode-tabs button{flex:1;min-height:46px;border-radius:12px;background:#E7E3D9;font-weight:700;font-size:14px;color:var(--ink-2)}
+  .mode-tabs button[aria-pressed="true"]{background:var(--gold);color:var(--navy)}
+  .paste-box{width:100%;min-height:180px;border:2px dashed var(--line);border-radius:12px;padding:12px;background:#FBFAF7;
+             font-family:ui-monospace,monospace;font-size:13px;resize:vertical}
+  .flag{display:inline-flex;align-items:center;font-size:12px;font-weight:700;border-radius:999px;padding:2px 8px;margin-left:6px}
+  .flag.auto{background:#FFF3D6;color:var(--warn)}
+  .flag.cierre{background:#FBE4E4;color:var(--red)}
+  .flag.falta{background:#EFEBE0;color:var(--ink-2)}
+  .flag.nuevo{background:#E3ECFB;color:#2B5AA7}
+  table.days{width:100%;border-collapse:collapse;font-size:14px}
+  table.days th{font-size:12px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-2);text-align:left;padding:6px 8px;border-bottom:2px solid var(--line)}
+  table.days td{padding:6px 8px;border-bottom:1px solid var(--line);vertical-align:middle}
+  table.days td input{width:80px;min-height:40px;border:1.5px solid var(--line);border-radius:8px;padding:4px 8px;background:#FBFAF7;
+                      font-variant-numeric:tabular-nums;text-align:right;font-size:14px}
+  table.days .plus1{min-height:40px;min-width:44px;border-radius:8px;background:#FBE4E4;color:var(--red);font-weight:800;font-size:13px}
+  .emp-scroll{max-height:62vh;overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;
+              border:1.5px solid var(--line);border-radius:16px;background:#ECE8DD;padding:10px;margin-bottom:16px}
+  .emp-scroll .emp-card{margin-bottom:10px}
+  .emp-scroll::-webkit-scrollbar{width:8px}
+  .emp-scroll::-webkit-scrollbar-thumb{background:#C9C2B2;border-radius:4px}
+  /* modo compacto dentro del scroll de asistencia */
+  .emp-scroll .emp-card{padding:8px 12px;margin-bottom:8px}
+  .emp-scroll .emp-card .hd{margin-bottom:2px}
+  .emp-scroll .emp-card .hd .nm2{font-size:14px}
+  .emp-scroll .emp-card .hd .hrs{font-size:16px}
+  .emp-scroll table.days th{padding:2px 6px;font-size:10px}
+  .emp-scroll table.days td{padding:3px 6px;font-size:13px;line-height:1.3}
+  .emp-scroll table.days td input[type=time]{min-height:32px !important;padding:2px 4px !important;font-size:13px !important;width:86px}
+  .emp-scroll .flag{font-size:10px;padding:1px 6px;margin-left:4px}
+  .emp-scroll .plus1{min-height:32px;min-width:40px;font-size:12px;padding:0 6px}
+  .emp-card{background:var(--card);border-radius:var(--r);box-shadow:var(--shadow);padding:14px 16px;margin-bottom:12px}
+  .emp-card .hd{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px}
+  .emp-card .hd .nm2{font-weight:700;font-size:16px;flex:1;min-width:160px}
+  .emp-card .hd .hrs{font-variation-settings:'wdth' 80,'wght' 800;font-size:18px;font-variant-numeric:tabular-nums}
+  /* Las listas largas se desplazan dentro de su propio recuadro: ya no hay que
+     bajar toda la pantalla para llegar al final de una tabla de 40 renglones.
+     El encabezado se queda fijo arriba mientras se hace scroll. */
+  .res-wrap{overflow-x:auto;overflow-y:auto;max-height:72vh;overscroll-behavior:contain;
+            margin-bottom:16px;-webkit-overflow-scrolling:touch}
+  .res-wrap table.res thead th{position:sticky;top:0;z-index:3}
+  .res-wrap table.res tfoot td{position:sticky;bottom:0;z-index:2;background:var(--card)}
+  .lista-larga{max-height:60vh;overflow-y:auto;overscroll-behavior:contain;
+               -webkit-overflow-scrolling:touch;padding-right:6px;margin-top:10px}
+  .lista-larga::-webkit-scrollbar,.res-wrap::-webkit-scrollbar{width:8px;height:8px}
+  .lista-larga::-webkit-scrollbar-thumb,.res-wrap::-webkit-scrollbar-thumb{background:#C9C2B2;border-radius:4px}
+  @media print{ .res-wrap{max-height:none;overflow:visible} }
+  @media(max-width:640px){table.res{font-size:13px}}
+  @media(max-width:420px){table.res th,table.res td{padding:8px 6px}}
+  table.res{min-width:860px;width:100%;border-collapse:collapse;background:var(--card);border-radius:var(--r);box-shadow:var(--shadow);overflow:hidden;font-size:14px}
+  table.res th{background:var(--navy);color:#fff;font-size:12px;text-transform:uppercase;letter-spacing:.04em;padding:10px 8px;text-align:right;white-space:nowrap}
+  table.res th:first-child{text-align:left}
+  table.res td{padding:8px;border-bottom:1px solid var(--line);text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+  table.res td:first-child{text-align:left;font-weight:600;white-space:normal;min-width:150px}
+  table.res td input{width:88px;min-height:40px;border:1.5px solid var(--line);border-radius:8px;padding:4px 8px;background:#FBFAF7;text-align:right;font-size:14px;font-variant-numeric:tabular-nums}
+  table.res td input[type=checkbox]{width:22px;height:22px;min-height:22px}
+  table.res .tot2{font-weight:800}
+  table.res tfoot td{font-weight:800;background:#FBF7EC}
+  /* primera columna fija al deslizar */
+  table.res th:first-child{position:sticky;left:0;z-index:3;background:var(--navy);min-width:150px}
+  table.res td:first-child{position:sticky;left:0;z-index:2;background:var(--card);box-shadow:3px 0 6px rgba(19,35,59,.10)}
+  table.res tfoot td:first-child{background:#FBF7EC;min-width:150px}
+  /* La esquina de arriba-izquierda y la de abajo-izquierda son pegajosas en los
+     dos ejes: tienen que ir POR ENCIMA de las demás celdas pegajosas de su misma
+     fila, o al deslizar de lado se les encima el vecino y el texto se corta
+     ("DÍA" se ve como "DÍ", "TOTAL SEMANA" como "TO"). */
+  .res-wrap table.res thead th:first-child{z-index:7}
+  .res-wrap table.res tfoot td:first-child{z-index:6;box-shadow:3px 0 6px rgba(19,35,59,.10)}
+  /* sin flechitas en las casillas de tablas */
+  table.res input::-webkit-outer-spin-button,table.res input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+  table.res input[type=number]{-moz-appearance:textfield;appearance:textfield}
+  table.pay input::-webkit-outer-spin-button,table.pay input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+  table.pay input[type=number]{-moz-appearance:textfield;appearance:textfield}
+  /* sticky Product column in pedido table */
+  .ped-tbl th:first-child{position:sticky;left:0;z-index:3;background:var(--navy);white-space:nowrap}
+  .ped-tbl td:first-child{position:sticky;left:0;z-index:2;background:var(--card);white-space:nowrap;box-shadow:3px 0 8px rgba(19,35,59,.12)}
+  /* Reporte: collapsible sections */
+  .rep-sec{border:1.5px solid var(--line);border-radius:var(--r);margin-bottom:12px;background:var(--card);box-shadow:var(--shadow)}
+  .rep-sec-hdr{display:flex;align-items:center;gap:10px;padding:14px 16px;cursor:pointer;user-select:none;min-height:52px}
+  .rep-sec-hdr h2{flex:1;margin:0;font-size:16px;font-weight:800;color:var(--navy)}
+  .rep-sec-hdr .rep-badge{font-size:12px;font-weight:700;padding:3px 10px;border-radius:20px;background:var(--line);color:var(--ink-2)}
+  .rep-sec-hdr .rep-chev{font-size:18px;color:var(--ink-2);transition:transform .2s}
+  .rep-sec-hdr[aria-expanded="false"] .rep-chev{transform:rotate(-90deg)}
+  .rep-sec-body{padding:0 16px 16px;display:block}
+  .rep-sec-hdr[aria-expanded="false"] + .rep-sec-body{display:none}
+  /* sticky Insumo column in inventory tables */
+  .res-wrap:has(.inv-tbl){overflow-x:auto}
+  .inv-tbl{overflow:visible !important}
+  .inv-tbl th:first-child{position:sticky;left:0;z-index:3;background:var(--navy);white-space:nowrap}
+  .inv-tbl td:first-child{position:sticky;left:0;z-index:2;background:var(--card);white-space:nowrap;box-shadow:3px 0 8px rgba(19,35,59,.12)}
+  .inv-tbl tfoot td:first-child{background:#FBF7EC}
+  /* misma esquina, mismo remedio que arriba */
+  .res-wrap:has(> table.inv-tbl) > table.inv-tbl thead th:first-child{z-index:9}
+  .res-wrap:has(> table.inv-tbl) > table.inv-tbl tfoot td:first-child{z-index:8}
+  table.res .rowbtn{min-height:40px;border-radius:8px;background:#E7E3D9;font-weight:700;font-size:13px;padding:0 10px}
+  #printArea{display:none}
+  @media print{
+    body > *{display:none!important}
+    #printArea{display:block!important;font-family:Arial,sans-serif;color:#000}
+    @page{margin:14mm 13mm}
+    .rc{page-break-after:always;max-width:720px;margin:0 auto;font-size:12px;line-height:1.45}
+    .rc:last-child{page-break-after:auto}
+    /* encabezado con logotipo */
+    .rc-head{display:flex;align-items:center;gap:16px;border-bottom:2.5px solid #13233B;padding-bottom:10px;margin-bottom:14px}
+    .rc-logo{width:96px;height:auto;flex:none}
+    .rc-head-txt{flex:1}
+    .rc h1{font-size:16px;text-transform:uppercase;letter-spacing:.5px;margin:0 0 3px;color:#13233B}
+    .rc .sub2{font-size:12.5px;font-weight:bold;color:#13233B;margin:0}
+    .rc .sub3{font-size:11.5px;color:#555;margin-top:2px}
+    .rc table{width:100%;border-collapse:collapse;font-size:11.5px;margin-bottom:12px}
+    .rc th,.rc td{border:1px solid #B9B9B9;padding:4px 7px;text-align:left;vertical-align:top}
+    .rc thead th{background:#13233B;color:#fff;text-transform:uppercase;font-size:9.5px;letter-spacing:.4px}
+    .rc .num{text-align:right;white-space:nowrap}
+    /* datos del trabajador: etiqueta gris, dato en blanco */
+    .rc-datos th{background:#EFEFEF;text-transform:uppercase;font-size:9.5px;color:#333;width:16%;letter-spacing:.3px}
+    .rc-datos td{font-weight:bold}
+    .rc-mov td{height:17px}
+    /* ---- REPORTE DE INVENTARIO, APRETADO ----
+       Son 26 insumos y se desbordaba a una segunda hoja por unos centímetros.
+       Una hoja suelta con tres renglones y las firmas es justo la que se
+       pierde. Se aprieta SOLO este reporte: los recibos de nómina llevan
+       firma del trabajador y ahí la letra chica sí estorba. */
+    .rc-compacto{font-size:11px;line-height:1.3}
+    .rc-compacto .rc-head{padding-bottom:7px;margin-bottom:9px}
+    .rc-compacto .rc-logo{width:74px}
+    .rc-compacto h1{font-size:14px}
+    .rc-compacto table{font-size:9.5px;margin-bottom:8px}
+    .rc-compacto th,.rc-compacto td{padding:1.5px 5px}
+    .rc-compacto thead th{font-size:8.5px}
+    .rc-compacto .rc-mov td{height:auto}
+    .rc-compacto .total-row td{font-size:10.5px}
+    .rc-compacto .rc-firmas-2{margin-top:14px!important}
+    .rc-compacto .rc-pie{margin-top:9px}
+    .rc-compacto .rc-sinreceta{font-size:8px;line-height:1.35;margin-top:6px}
+    /* Renglón imposible: consumió más de lo que había. Se marca en el papel
+       porque es ahí donde alguien decide si persigue un faltante que no
+       existe. El fondo se imprime aunque el navegador ahorre tinta. */
+    /* ---- PLANTILLA DE PERSONAL ----
+       Cada persona ocupa dos renglones: arriba lo que cabe en columnas, abajo
+       el domicilio y los contactos, que son largos y de ancho impredecible.
+       Los dos renglones se pegan (sin borde entre ellos) y no se dejan partir
+       por un salto de página: media ficha al final de una hoja no se entiende. */
+    .rc-plantilla{font-size:9px}
+    .rc-plantilla th,.rc-plantilla td{padding:2.5px 4px;word-break:break-word}
+    .rc-plantilla thead th{font-size:8px}
+    .rc-plantilla .pl-a td{border-bottom:0;page-break-after:avoid}
+    .rc-plantilla .pl-b td{border-top:0;padding-top:0;font-size:8.5px;color:#444}
+    .rc-plantilla tr{page-break-inside:avoid}
+    .rc .rc-revisar td{background:#FBE9E7!important;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    .rc .rc-revisar td:first-child b{color:#B4453A}
+    .rc-mov .subt td{background:#F4F4F4;font-weight:bold;font-size:11px}
+    .rc .total-row td{font-weight:bold;background:#13233B;color:#fff;font-size:12.5px;letter-spacing:.3px}
+    .rc-letra{border:1px solid #B9B9B9;padding:5px 7px;font-size:11px;margin-bottom:12px;background:#FAFAFA}
+    .rc-nota{font-size:10px;color:#555;font-style:italic;margin:-6px 0 12px}
+    .rc-asist td,.rc-asist th{font-size:10.5px;padding:3px 7px}
+    .rc-concentrado td{font-size:10.5px;padding:3px 6px}
+    .rc-clausula{font-size:9.5px;color:#333;text-align:justify;border-top:1px solid #ccc;padding-top:8px;margin-bottom:8px}
+    .rc-clausula p{margin:0 0 4px}
+    /* firma centrada, con la fecha arriba */
+    .rc-firma-wrap{margin-top:26px;text-align:center}
+    .rc-fecha{font-size:11px;margin-bottom:34px;text-align:center}
+    .rc-firma{display:inline-block;text-align:center;min-width:290px}
+    .rc-linea{border-top:1px solid #000;margin-bottom:4px}
+    .rc-nombre{font-size:11.5px;font-weight:bold;text-transform:uppercase}
+    .rc-rol{font-size:10px;color:#555;margin-top:1px}
+    .rc-firmas-2{display:flex;justify-content:space-around;gap:40px;margin-top:6px}
+    .rc-firmas-2 .rc-firma{min-width:210px}
+    .rc-pie{margin-top:16px;font-size:8.5px;color:#777;text-align:center;border-top:1px solid #eee;padding-top:5px}
+    /* documentos legales: carta de renuncia y convenio de finiquito */
+    .doc{font-size:11.5px;line-height:1.6}
+    .doc-lugar{text-align:right;font-size:11.5px;font-weight:bold;margin-bottom:18px}
+    .doc-dest{font-size:11.5px;line-height:1.5;margin-bottom:26px}
+    .doc-cuerpo p{text-align:justify;margin:0 0 11px;text-indent:24px}
+    .doc-atte{text-align:center;font-weight:bold;letter-spacing:2px;margin:34px 0 10px;font-size:11.5px}
+    .doc-huella{display:flex;align-items:center;gap:18px;margin-top:20px;justify-content:center}
+    .doc-huella-caja{border:1px solid #999;width:92px;height:92px;display:flex;align-items:center;
+                     justify-content:center;text-align:center;font-size:8px;color:#777;flex:none}
+    .doc-ident{font-size:9.5px;color:#333;line-height:2.1}
+    .doc-firmas-conv{display:flex;justify-content:space-around;gap:36px;margin-top:34px}
+    .doc-firmas-conv .rc-firma{min-width:230px}
+  }
+
+  .toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom) + 20px);transform:translateX(-50%) translateY(80px);
+         background:var(--navy);color:#fff;padding:12px 20px;border-radius:12px;box-shadow:var(--shadow);
+         transition:transform .25s ease-out;font-weight:600;z-index:50;max-width:90vw}
+  .toast.show{transform:translateX(-50%) translateY(0)}
+  @media (prefers-reduced-motion: reduce){*{transition:none!important;animation:none!important}}
+  #boot-splash{position:fixed;inset:0;background:var(--navy);z-index:9999;display:flex;align-items:center;justify-content:center;transition:opacity .3s}
+  #boot-splash.gone{opacity:0;pointer-events:none}
+  .boot-logo{color:#fff;font-size:36px;font-weight:900;text-align:center}
+  .boot-logo span{color:var(--gold)}
+  .boot-sub{color:rgba(255,255,255,.45);font-size:13px;margin-top:6px;text-align:center}
+  .boot-dot{display:flex;gap:8px;margin-top:18px;justify-content:center}
+  .boot-dot i{width:9px;height:9px;border-radius:50%;background:var(--gold);opacity:.25;animation:bp 1.2s ease-in-out infinite}
+  .boot-dot i:nth-child(2){animation-delay:.2s}
+  .boot-dot i:nth-child(3){animation-delay:.4s}
+  @keyframes bp{0%,80%,100%{opacity:.25}40%{opacity:1}}
+</style>
+</head>
+<body>
+<div id="boot-splash"><div><div class="boot-logo">Boye's <span>Ops</span></div><div class="boot-sub">Cargando…</div><div class="boot-dot"><i></i><i></i><i></i></div></div></div>
+
+<!-- LOGIN -->
+<div id="login" class="login">
+  <img class="emblema" src="/img/logo.webp" alt="Boye's Burgers &amp; Pizza">
+  <div class="wordmark">Boye's <span class="accent">Ops</span></div>
+  <div class="sub">Burgers &amp; Pizza · Operaciones</div>
+  <div class="pin-dots" id="dots" aria-label="PIN"></div>
+  <div class="pad" id="pad" role="group" aria-label="Teclado de PIN"></div>
+  <p class="login-err" id="loginErr" role="alert" aria-live="polite"></p>
+</div>
+
+<!-- APP -->
+<div id="app" class="hide">
+  <header class="app">
+    <div class="bar">
+      <img class="emblema" src="/img/logo.webp" alt="" aria-hidden="true">
+      <div class="wordmark">Boye's <span class="accent">Ops</span></div>
+      <div class="who"><b id="whoName"></b><span id="whoLoc"></span></div>
+      <button class="out bell hide" id="bell" aria-label="Activar alarmas" aria-pressed="false">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+      </button>
+      <button class="out" id="logout" aria-label="Cerrar sesión">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+      </button>
+    </div>
+    <nav class="tabs" id="tabs" role="tablist"></nav>
+  <nav class="tabs-mobile" id="tabsMobile" role="tablist"></nav>
+  </header>
+  <main id="main"></main>
+</div>
+
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<div id="printArea"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script>
+
+// Remove boot splash as soon as JS starts executing
+(function(){var sp=document.getElementById('boot-splash');if(sp){setTimeout(function(){sp.classList.add('gone');setTimeout(function(){sp.remove()},350)},100);}})();
+
+// Dynamic script loaders - only load when actually needed
+function loadPdfJs(){ return window._pdfJsLoaded||(window._pdfJsLoaded=new Promise(r=>{const s=document.createElement('script');s.src='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';s.onload=r;document.head.appendChild(s);})); }
+function loadXLSX(){ return window._xlsxLoaded||(window._xlsxLoaded=new Promise(r=>{const s=document.createElement('script');s.src='https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';s.onload=r;document.head.appendChild(s);})); }
+function loadTesseract(){ return window._tessLoaded||(window._tessLoaded=new Promise(r=>{const s=document.createElement('script');s.src='https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';s.onload=r;document.head.appendChild(s);})); }
+const sb = supabase.createClient(
+  'https://pyhfpggduehplobtanee.supabase.co',
+  'sb_publishable_3w-exsBCuqK0l8A3k6H2Fg_j-nvrf1C'
+);
+
+const AREAS = {cocina:'Cocina', servicio:'Servicio', limpieza:'Limpieza', mantenimiento:'Mantenimiento', admin:'Administración'};
+const AREA_ORDER = ['cocina','servicio','limpieza','admin','mantenimiento'];
+const DOW = ['domingo','lunes','martes','miércoles','jueves','viernes','sábado'];
+const LOCS = {1:"Boye's Guaymas", 2:"Boye's San Carlos"};
+const CATS = {
+  ingreso: [['ventas','Ventas'],['otros_ingresos','Otros ingresos']],
+  egreso:  [['proveedores','Proveedores'],['nomina','Nómina'],['renta','Renta'],['servicios','Servicios (luz, agua, gas, internet)'],
+            ['mantenimiento','Mantenimiento'],['impuestos','Impuestos'],['otros_egresos','Otros egresos']]
+};
+const CAT_LABEL = Object.fromEntries([...CATS.ingreso, ...CATS.egreso]);
+
+let user = null, templates = [], completions = [], adminLoc = 1, tab = 'hoy';
+let fmtSub = 'cot';
+/* Qué se ve dentro de Mantenimiento: 'mant' el tablero de equipos y tickets,
+   'chk' el checklist del día. */
+let mantSub = 'mant';
+let finLoc = 1, finSub = 'mov', finMonth = null, txMonth = [], employees = [], payWeek = null, payData = null, payHist = [];
+let alarmsOn = false, audioCtx = null, wakeLock = null, alerted = {};
+let nomMode = 'chk', payCalc = null, newEmps = [], manualOpen = false;
+let herrSub='calc';
+let calcForm = {salario:'', salarioTipo:'mensual', fechaIngreso:'', fechaCalculo:new Date().toISOString().slice(0,10), diasPendientes:0, vacPendientes:0, tipo:'finiquito',  empleadoId:'', locFiltro:'', nombreManual:'', incluir20:true};
+let invSub='ven', invWeek=null, invData=null, catalog=null, salesParse=null, invEdit={}, invRegisterIncome=true, recFilter='';
+let facLines=null, facMeta={prov:'',date:null,total:0}, bankData=null, bankParse=null, bankMonth=null, txRange=[];
+let pedEdit={};
+let pedSoloSinProv=false;
+let recEditId=null, recDraft=null;
+let invHist=null;
+let repWeekly=null, repSel=null, repDetail=null;
+let finRange=null;
+let repLoading=false;
+let mantData=null, ticketSel=null, mantForm=false;
+let eqFilter='';
+let recSel = new Set(), recOnlyEmpty = false;
+let corWeek=null, corData=null, corEdit=null;
+let pedData=null, pedWeek=null, pedEdit2={};
+let _pedChannel=null, _pedBroadcasting=false;
+let planData=null, planEdit={}, planMonth=null, planTab='main';
+let planTodos=false, planExtra=[], planSem=0;
+let schData=null, schWeek=null, schEdit={}, schSelEmp=null;
+
+/* ---------- helpers ---------- */
+const $  = s => document.querySelector(s);
+const esc = s => String(s??'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const todayStr = () => { const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); };
+const daysBetween = (a,b) => Math.round((b-a)/86400000);
+const money = n => Number(n||0).toLocaleString('es-MX',{style:'currency',currency:'MXN'});
+/* Pesos cerrados. En una celda de total diario los centavos no cambian ninguna
+   decisión y sí cuestan casi 30px de ancho por columna, que es la diferencia
+   entre que la semana quepa en pantalla o no. */
+const money0 = n => Number(n||0).toLocaleString('es-MX',{style:'currency',currency:'MXN',maximumFractionDigits:0});
+const dstr = d => d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+function toast(msg){ const t=$('#toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(t._h); t._h=setTimeout(()=>t.classList.remove('show'),3200); }
+function fmtDate(){ return new Date().toLocaleDateString('es-MX',{weekday:'long',day:'numeric',month:'long'}); }
+function mondayOf(d){ const x=new Date(d); x.setDate(x.getDate() - ((x.getDay()+6)%7)); x.setHours(12,0,0,0); return x; }
+/* La nómina va de JUEVES a MIÉRCOLES, no de lunes a domingo: el periodo que
+   se paga corre así en el restaurante. Todo lo demás (inventario, corte,
+   pedido, horario) sigue siendo semana de lunes a domingo. */
+function juevesOf(d){ const x=new Date(d); x.setDate(x.getDate() - ((x.getDay()-4+7)%7)); x.setHours(12,0,0,0); return x; }
+function forceLogout(msg){ localStorage.removeItem('boyes_user_v2'); toast(msg||'Sesión expirada'); setTimeout(()=>location.reload(), 900); }
+/* Antes, si la base tardaba o no contestaba, la promesa se quedaba colgada
+   para siempre y la pantalla se quedaba en "Cargando…" sin decir nada.
+   Ahora hay un límite de espera y el error se ve. */
+let catalogError = null;
+let finCargando = false;          // ¿hay una carga de catálogo en curso?
+let _eqpPedido = false;           // la plantilla ya se pidió al menos una vez
+/* Pantalla de espera con salida: antes, si el catálogo se quedaba en null sin
+   error (la carga inicial no llegó, la pestaña estuvo dormida, se cambió de
+   sucursal a media consulta), la sección se quedaba en "Cargando…" sin ningún
+   botón y sin nadie que volviera a pedir los datos. Eso es lo que se veía
+   TRABADO. Ahora toda espera trae su propio botón para reintentar. */
+function cargandoView(titulo){
+  return `<div class="empty"><b>${titulo}…</b>
+    <span style="display:block;margin:8px 0;font-size:13px;color:var(--ink-2)">Si tarda más de unos segundos, toca Reintentar.</span>
+    <button class="btn-quiet" id="invRetry" style="margin-top:6px">Reintentar</button></div>`;
+}
+function reintentarInventario(){
+  invError=null; catalogError=null; invData=null; catalog=null; invCargando=false;
+  render(); refreshFinance(); refreshInvWeek();
+}
+/* Si el catálogo falta y nadie lo está pidiendo, se pide solo. Este es el
+   seguro que rompe el atasco permanente. */
+/* El catálogo (518 insumos, 262 platillos) casi no cambia de un día a otro, y
+   esperarlo por red era lo que hacía que Inventario tardara en abrir. Se deja
+   una copia en el navegador: la sección pinta al instante con esa copia y la
+   versión fresca la sustituye en cuanto llega. */
+const CAT_LOCAL = 'boyes_catalogo_v2';
+function guardaCatalogoLocal(c){
+  try{ localStorage.setItem(CAT_LOCAL, JSON.stringify({t: Date.now(), c})); }catch(e){}
+}
+function catalogoLocal(){
+  try{
+    const g = JSON.parse(localStorage.getItem(CAT_LOCAL)||'null');
+    if(!g || !g.c || !Array.isArray(g.c.ingredients)) return null;
+    if(Date.now() - g.t > 7*86400000) return null;   // más de una semana: mejor no
+    return g.c;
+  }catch(e){ return null; }
+}
+function aseguraCatalogo(){
+  if(catalog===null && !catalogError && !finCargando) refreshFinance();
+}
+/* Al volver a la app después de un rato (el celular se bloqueó, se cambió de
+   pestaña), la conexión con la base suele haberse caído y la consulta que
+   estaba en curso ya nunca contesta. En vez de dejarlo colgado, se vuelve a
+   pedir lo que falte. */
+document.addEventListener('visibilitychange', ()=>{
+  if(document.visibilityState!=='visible' || typeof user==='undefined' || !user) return;
+  if(catalog===null && !catalogError) refreshFinance();
+  if(typeof invData!=='undefined' && invData===null && !invError && typeof refreshInvWeek==='function'){
+    const enInv = (user.role==='administradora' && (tab==='invt'||tab==='pedido'))
+               || (user.role==='admin' && tab==='fin' && (finSub==='invt'||finSub==='pedido'));
+    if(enInv){ invCargando = false; refreshInvWeek(); }
+  }
+});
+async function finRpc(fn, args, msEspera){
+  const limite = msEspera || 12000;
+  let reloj;
+  const vencido = new Promise((_, rechaza)=>{
+    reloj = setTimeout(()=>rechaza(new Error(`El servidor no contestó en ${Math.round(limite/1000)} s (${fn})`)), limite);
+  });
+  let res;
+  try{ res = await Promise.race([ sb.rpc(fn, {p_token: user.token, ...args}), vencido ]); }
+  finally{ clearTimeout(reloj); }
+  const {data, error} = res || {};
+  if(error){
+    if((error.message||'').includes('No autorizado')) { forceLogout('Sesión expirada, vuelve a entrar'); throw error; }
+    throw new Error(error.message || 'Error de conexión');
+  }
+  return data;
+}
+
+/* ---------- login ---------- */
+let pin = '';
+const padKeys = ['1','2','3','4','5','6','7','8','9','borrar','0','entrar'];
+$('#pad').innerHTML = padKeys.map(k =>
+  `<button type="button" data-k="${k}" class="${k==='borrar'?'util':''}${k==='entrar'?'go':''}" aria-label="${k}">${k.length>1?k.toUpperCase():k}</button>`).join('');
+$('#pad').addEventListener('click', e => {
+  const k = e.target.closest('button')?.dataset.k; if(!k) return;
+  if(k==='borrar') pin = pin.slice(0,-1);
+  else if(k==='entrar'){ if(pin.length>=4) doLogin(); return; }
+  else if(pin.length<6) pin += k;
+  renderDots();
+});
+function renderDots(){
+  const n = Math.max(4, pin.length);
+  $('#dots').innerHTML = Array.from({length:n},(_,i)=>`<span class="${i<pin.length?'full':''}"></span>`).join('');
+}
+renderDots();
+document.addEventListener('keydown', e => {
+  if(document.getElementById('lockOverlay')) return; // handled separately below
+  if($('#login').classList.contains('hide')) return;
+  if(/^[0-9]$/.test(e.key)){ if(pin.length<6) pin += e.key; renderDots(); }
+  else if(e.key==='Backspace'){ pin = pin.slice(0,-1); renderDots(); }
+  else if(e.key==='Enter'){ if(pin.length>=4) doLogin(); }
+});
+async function doLogin(){
+  $('#loginErr').textContent = '';
+  const {data, error} = await sb.rpc('login_with_pin', {p_pin: pin});
+  pin=''; renderDots();
+  if(error){ $('#loginErr').textContent='Error de conexión. Intenta de nuevo.'; return; }
+  if(!data || !data.length){ $('#loginErr').textContent='PIN incorrecto'; return; }
+  user = data[0];
+  localStorage.setItem('boyes_user_v2', JSON.stringify(user));
+  enterApp();
+}
+$('#logout').addEventListener('click', ()=>{ localStorage.removeItem('boyes_user_v2'); location.reload(); });
+
+/* ---------- ops data ---------- */
+let sportsAgenda = [];
+async function loadData(){
+  const [t, c, se] = await Promise.all([
+    sb.from('task_templates').select('*').eq('active', true).order('sort_order'),
+    sb.from('task_completions').select('*')
+      .gte('due_date', new Date(Date.now()-200*86400000).toISOString().slice(0,10)),
+    sb.from('sports_events').select('*').gte('event_date', todayStr())
+      .lte('event_date', new Date(Date.now()+8*86400000).toISOString().slice(0,10)).order('event_date')
+  ]);
+  if(t.error||c.error){ toast('Error cargando datos'); return; }
+  templates = t.data; completions = c.data; sportsAgenda = se.error ? [] : (se.data||[]);
+}
+function forLocation(locId){ return templates.filter(t => t.location_id===null || t.location_id===locId); }
+function forRole(list){
+  if(user.role==='admin'||user.role==='administradora') return list;
+  return list.filter(t => !t.target_role || t.target_role===user.role);
+}
+function isDoneToday(t, locId){ return completions.find(c => c.template_id===t.id && c.location_id===locId && c.due_date===todayStr()); }
+function lastDone(t, locId){
+  const rows = completions.filter(c => c.template_id===t.id && c.location_id===locId);
+  if(!rows.length) return null;
+  return rows.map(r=>r.due_date).sort().at(-1);
+}
+function dueToday(t, locId){
+  const d = new Date();
+  if(t.frequency==='daily')   return true;
+  if(t.frequency==='weekly')  return d.getDay()===t.day_of_week;
+  if(t.frequency==='monthly') return d.getDate()===t.day_of_month;
+  if(t.frequency==='interval'){
+    const last = lastDone(t, locId);
+    if(!last) return true;
+    return daysBetween(new Date(last+'T12:00'), d) >= t.interval_days;
+  }
+  return false;
+}
+function intervalStatus(t, locId){
+  const last = lastDone(t, locId);
+  if(!last) return {days:null, overdue:true, label:'Nunca registrado'};
+  const since = daysBetween(new Date(last+'T12:00'), new Date());
+  const remaining = t.interval_days - since;
+  if(remaining < 0)  return {overdue:true,  label:`Vencido hace ${-remaining} d`};
+  if(remaining === 0)return {overdue:true,  label:'Vence hoy'};
+  return {overdue:false, label:`En ${remaining} d`};
+}
+const hhmmNow = () => new Date().toTimeString().slice(0,5);
+function slotsFor(t){
+  const out = [];
+  if(!t.every_minutes || !t.window_start || !t.window_end) return out;
+  let [h,m] = t.window_start.slice(0,5).split(':').map(Number);
+  const end = t.window_end.slice(0,5);
+  while(true){
+    const s = String(h).padStart(2,'0')+':'+String(m).padStart(2,'0');
+    if(s > end) break;
+    out.push(s);
+    m += t.every_minutes; h += Math.floor(m/60); m = m%60;
+    if(h>23) break;
+  }
+  return out;
+}
+function slotDone(t, locId, slot){
+  return completions.find(c => c.template_id===t.id && c.location_id===locId && c.due_date===todayStr() && c.slot===slot);
+}
+function recurringFor(locId){ return forRole(forLocation(locId)).filter(t=>t.frequency==='recurring'); }
+function currentSlot(t){
+  const now = hhmmNow();
+  const past = slotsFor(t).filter(s=>s<=now);
+  return past.length ? past.at(-1) : null;
+}
+
+/* ---------- alarms ---------- */
+function unlockAudio(){
+  audioCtx = audioCtx || new (window.AudioContext||window.webkitAudioContext)();
+  if(audioCtx.state==='suspended') audioCtx.resume();
+}
+function chime(){
+  if(!audioCtx) return;
+  const now = audioCtx.currentTime;
+  [[880,0],[1174.66,.18],[880,.36],[1318.5,.54]].forEach(([f,t])=>{
+    const o=audioCtx.createOscillator(), g=audioCtx.createGain();
+    o.type='sine'; o.frequency.value=f; o.connect(g); g.connect(audioCtx.destination);
+    g.gain.setValueAtTime(.0001, now+t);
+    g.gain.exponentialRampToValueAtTime(.5, now+t+.02);
+    g.gain.exponentialRampToValueAtTime(.0001, now+t+.55);
+    o.start(now+t); o.stop(now+t+.6);
+  });
+}
+function bigAlarm(){ chime(); setTimeout(chime,1400); setTimeout(chime,2800); if(navigator.vibrate) navigator.vibrate([300,150,300,150,300]); }
+async function armAlarms(){
+  unlockAudio();
+  try{ if('Notification' in window && Notification.permission==='default') await Notification.requestPermission(); }catch(e){}
+  try{ if('wakeLock' in navigator){ wakeLock = await navigator.wakeLock.request('screen'); } }catch(e){}
+  alarmsOn = true;
+  localStorage.setItem('boyes_alarms','1');
+  const b = $('#bell'); b.classList.add('on'); b.setAttribute('aria-pressed','true'); b.setAttribute('aria-label','Alarmas activadas');
+  chime(); toast('Alarmas activadas para este turno');
+  render();
+}
+function disarmAlarms(){
+  alarmsOn = false; localStorage.removeItem('boyes_alarms');
+  try{ wakeLock?.release(); }catch(e){} wakeLock=null;
+  const b = $('#bell'); b.classList.remove('on'); b.setAttribute('aria-pressed','false'); b.setAttribute('aria-label','Activar alarmas');
+  toast('Alarmas desactivadas'); render();
+}
+document.addEventListener('visibilitychange', async ()=>{
+  if(alarmsOn && document.visibilityState==='visible' && 'wakeLock' in navigator){
+    try{ wakeLock = await navigator.wakeLock.request('screen'); }catch(e){}
+  }
+});
+function pendingNow(){
+  const locId = user.role==='admin' ? adminLoc : user.location_id;
+  if(!locId) return [];
+  const out = [];
+  for(const t of recurringFor(locId)){
+    const s = currentSlot(t);
+    if(s && !slotDone(t, locId, s)) out.push({t, slot:s, locId});
+  }
+  return out;
+}
+function tickAlarms(){
+  if(!user || user.role==='administradora') return;
+  const pend = pendingNow();
+  if(alarmsOn){
+    for(const p of pend){
+      const key = p.t.id+'|'+todayStr()+'|'+p.slot;
+      const last = alerted[key]||0;
+      if(!last || Date.now()-last > 10*60*1000){
+        alerted[key] = Date.now();
+        bigAlarm();
+        try{
+          if('Notification' in window && Notification.permission==='granted')
+            new Notification("Boye's Ops", {body:`${p.t.title} — ronda de las ${p.slot}`, tag:key});
+        }catch(e){}
+      }
+    }
+  }
+  /* 'mant' entra a la lista porque ahí vive ahora el checklist del admin:
+     sin eso, una palomita puesta en otro dispositivo no se repintaría. */
+  if(tab==='hoy'||tab==='resumen'||tab==='mant') render();
+}
+async function toggleTask(tplId, locId, slot=''){
+  const t = templates.find(x=>x.id===tplId);
+  const done = slot ? slotDone(t, locId, slot) : isDoneToday(t, locId);
+  if(done){
+    const {error} = await sb.from('task_completions').delete().eq('id', done.id);
+    if(error){ toast('No se pudo desmarcar'); return; }
+    completions = completions.filter(c=>c.id!==done.id);
+  }else{
+    const row = {template_id:tplId, location_id:locId, due_date:todayStr(), completed_by:user.name, slot};
+    const {data, error} = await sb.from('task_completions').insert(row).select().single();
+    if(error){ toast('No se pudo guardar'); return; }
+    if(!completions.find(c=>c.id===data.id)) completions.push(data);
+  }
+  render();
+}
+
+/* ---------- shell ---------- */
+/* ---- auto-lock ---- */
+let _lockTimer = null;
+const LOCK_MS = 5 * 60 * 1000;
+function resetLockTimer(){
+  if(!user) return;
+  clearTimeout(_lockTimer);
+  _lockTimer = setTimeout(lockScreen, LOCK_MS);
+}
+function lockKey(k){
+  const ov=document.getElementById('lockOverlay'); if(!ov) return;
+  if(k==='X'){ ov._pb=(ov._pb||'').slice(0,-1); }
+  else if(k!==''){ ov._pb=(ov._pb||'')+String(k); }
+  const pel=document.getElementById('lockPinDots');
+  if(pel) pel.textContent = ov._pb?'●'.repeat(ov._pb.length):'—';
+  if((ov._pb||'').length>=4){
+    const pin=ov._pb; ov._pb='';
+    if(pel) pel.textContent='—';
+    sb.rpc('login_with_pin',{p_pin:pin}).then(({data,error})=>{
+      const u = (!error && data && data.length) ? data[0] : null;
+      if(!u||!u.name){const e=document.getElementById('lockErr');if(e){e.textContent='PIN incorrecto';setTimeout(()=>e.textContent='',2000);}return;}
+      user=u; ov.remove();
+      if(u.name===ov._name){ resetLockTimer(); toast('Sesión reanudada — '+u.name); render(); }
+      else { tab=null; finSub='mov'; enterApp(); resetLockTimer(); }
+    }).catch(()=>{const e=document.getElementById('lockErr');if(e){e.textContent='Error';setTimeout(()=>e.textContent='',2000);}});
+  }
+}
+document.addEventListener('keydown', e => {
+  if(!document.getElementById('lockOverlay')) return;
+  if(/^[0-9]$/.test(e.key)) lockKey(e.key);
+  else if(e.key==='Backspace') lockKey('X');
+});
+function lockSwitchUser(){
+  const ov=document.getElementById('lockOverlay'); if(ov) ov.remove();
+  user=null; tab=null; clearTimeout(_lockTimer);
+  $('#app').classList.add('hide'); $('#login').classList.remove('hide');
+}
+function lockScreen(){
+  if(!user) return;
+  const nm=user.name;
+  const ov=document.createElement('div');
+  ov.id='lockOverlay'; ov._name=nm; ov._pb='';
+  ov.style.cssText='position:fixed;inset:0;z-index:9999;background:var(--navy);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;padding:24px';
+  ov.innerHTML=`<div style="text-align:center"><div style="font-size:52px">🔒</div>
+    <div style="color:rgba(255,255,255,.5);font-size:12px;text-transform:uppercase;letter-spacing:.12em;margin:8px 0 2px">Sesión bloqueada</div>
+    <div style="color:#fff;font-weight:800;font-size:22px">${esc(nm)}</div></div>
+  <div style="background:rgba(255,255,255,.07);border-radius:20px;padding:20px;width:100%;max-width:300px">
+    <div style="color:rgba(255,255,255,.5);font-size:13px;text-align:center;margin-bottom:10px">Ingresa tu PIN para continuar</div>
+    <div id="lockPinDots" style="font-size:34px;letter-spacing:14px;text-align:center;color:#fff;min-height:46px;margin-bottom:14px">—</div>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">
+      ${[1,2,3,4,5,6,7,8,9,'','0','X'].map(k=>`<button onclick="lockKey('${k}')"
+        style="min-height:62px;border-radius:14px;font-size:${k==='X'?'20':'24'}px;font-weight:700;
+               background:rgba(255,255,255,.10);color:#fff;border:none;cursor:pointer;
+               touch-action:manipulation;${k===''?'visibility:hidden':''}">${k==='X'?'⌫':k}</button>`).join('')}
+    </div>
+    <div id="lockErr" style="color:#FFB4B4;text-align:center;min-height:20px;margin-top:8px;font-size:13px"></div>
+    <button onclick="lockSwitchUser()" style="margin-top:12px;width:100%;min-height:44px;border-radius:12px;
+      background:transparent;color:rgba(255,255,255,.35);border:1px solid rgba(255,255,255,.12);font-size:12px;cursor:pointer">
+      Cambiar de usuario
+    </button>
+  </div>`;
+  document.body.appendChild(ov);
+}
+function enterApp(){
+  $('#login').classList.add('hide');
+  $('#app').classList.remove('hide');
+  $('#whoName').textContent = user.name;
+  $('#whoLoc').textContent =
+    user.role==='admin' ? 'Admin · Ambas sucursales' :
+    user.role==='administradora' ? 'Administración · Ambas sucursales' :
+    LOCS[user.location_id];
+  let tabs;
+  /* El checklist se metió DENTRO de Mantenimiento: son la misma chamba del
+     día y tener dos pestañas separadas obligaba a brincar entre ellas.
+     Para el personal de piso sí sigue siendo su pestaña principal. */
+  if(user.role==='admin') tabs = [['resumen','Resumen'],['mant','Mant.'],['hrr','Herramientas'],['eqp','Equipo'],['fin','Finanzas'],['nueva','+ Tarea']];
+  else if(user.role==='administradora') tabs = [['mov','Movimientos'],['nom','Nómina'],['hrr','Herramientas'],['eqp','Equipo'],['invt','Inventario'],['cor','Corte'],['pedido','Pedido'],['rct','Recetario'],['bco','Banco'],['rep','Reporte']];
+  else tabs = [['hoy','Hoy'],['mant','Mantenimiento']];
+  tab = tabs[0][0];
+  const _tabIcons = {'vivo': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>',
+    'resumen': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>',
+    'hoy': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>',
+    'mant': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94z"/></svg>',
+    'fin': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>',
+    'nueva': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>',
+    'mov': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>',
+    'nom': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>',
+    'invt': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 01-2.83 0L2 12V2h10l8.59 8.59a2 2 0 010 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>',
+    'cor': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>',
+    'pedido': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 01-8 0"/></svg>',
+    'hor': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>',
+    'rct': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 002-2V2"/><path d="M7 2v20"/><path d="M21 15V2l-5 5"/></svg>',
+    'bco': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>',
+    'hrr': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94z"/></svg>',
+    'rep': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>'};
+  const _tabLabels = {'resumen':'Resumen','hoy':'Hoy','mant':'Mant.','fin':'Fin.','nueva':'+Tarea','mov':'Movs.','nom':'Nómina','invt':'Invent.','cor':'Corte','pedido':'Pedido','hor':'Horario','rct':'Recetas','bco':'Banco','rep':'Reporte','hrr':'Herram.','eqp':'Equipo'};
+  $('#tabs').innerHTML = tabs.map(([id,l])=>`<button role="tab" data-tab="${id}" aria-selected="${id===tab}">${l}</button>`).join('');
+  const _mob = document.getElementById('tabsMobile');
+  if(_mob) _mob.innerHTML = tabs.map(([id,l])=>`<button role="tab" data-tab="${id}" aria-selected="${id===tab}">${_tabIcons[id]||''}<span>${_tabLabels[id]||l}</span></button>`).join('');
+  const _onTabClick = e=>{
+    const b=e.target.closest('button'); if(!b||!b.dataset.tab) return;
+    tab=b.dataset.tab;
+    document.querySelectorAll('#tabs button, #tabsMobile button').forEach(x=>x.setAttribute('aria-selected', x.dataset.tab===tab));
+    render();
+  };
+  $('#tabs').addEventListener('click', _onTabClick);
+  if(_mob) _mob.addEventListener('click', _onTabClick);
+
+
+
+
+
+  finMonth = todayStr().slice(0,7);
+  payWeek = juevesOf(new Date());   // la nómina corre de jueves a miércoles
+  invWeek = mondayOf(new Date());
+  bankMonth = todayStr().slice(0,7);
+  corWeek = mondayOf(new Date());
+  pedWeek = mondayOf(new Date());
+  schWeek = mondayOf(new Date());
+  planMonth = new Date().toISOString().slice(0,7);
+  loadData().then(render);
+  resetLockTimer();
+  if(user.role==='admin'||user.role==='administradora'){
+    const cl = catalogoLocal();
+    if(cl && catalog===null) catalog = cl;   // pinta ya; abajo se actualiza
+    refreshFinance();
+  }
+
+  // live sync: any check on any device updates everyone instantly
+  sb.channel('completions-live')
+    .on('postgres_changes', {event:'*', schema:'public', table:'task_completions'}, p=>{
+      if(p.eventType==='INSERT'){ if(!completions.find(c=>c.id===p.new.id)) completions.push(p.new); }
+      else if(p.eventType==='DELETE'){ const oid=p.old?.id; if(oid) completions = completions.filter(c=>c.id!==oid); }
+      if(tab==='mant'){ ticketSel=null; mantForm=false; mantData=null; eqFilter=''; }
+      if(tab==='hoy'||tab==='resumen'||tab==='mant') render();
+    })
+    .subscribe();
+
+  // alarms (managers/chefs/admin)
+  if(user.role!=='administradora'){
+    const bell = $('#bell');
+    bell.classList.remove('hide');
+    bell.addEventListener('click', ()=> alarmsOn ? disarmAlarms() : armAlarms());
+    setInterval(tickAlarms, 20000);
+  }
+}
+
+/* ---------- ops views ---------- */
+function taskTile(t, locId, {showChip=false}={}){
+  const done = isDoneToday(t, locId);
+  const st = t.frequency==='interval' ? intervalStatus(t, locId) : null;
+  const meta = done ? `Hecho por ${esc(done.completed_by)} · ${new Date(done.completed_at).toLocaleTimeString('es-MX',{hour:'2-digit',minute:'2-digit'})}` : '';
+  return `<button class="task ${done?'is-done':''} ${(!done && st?.overdue)?'overdue':''}" data-t="${t.id}" data-l="${locId}" aria-pressed="${!!done}">
+    <span class="box" aria-hidden="true">${done?'<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>':''}</span>
+    <span>
+      <span class="t">${esc(t.title)}</span>
+      ${t.description?`<span class="d">${esc(t.description)}</span>`:''}
+      ${meta?`<span class="meta">${meta}</span>`:''}
+    </span>
+    ${showChip && st ? `<span class="due-chip">${st.label}</span>` : ''}
+  </button>`;
+}
+function recurringCard(t, locId){
+  const now = hhmmNow();
+  const slots = slotsFor(t);
+  const cur = currentSlot(t);
+  const next = slots.find(s=>s>now);
+  const chips = slots.map(s=>{
+    const done = slotDone(t, locId, s);
+    let cls='future', dis=' disabled';
+    if(done){ cls='done'; dis=''; }
+    else if(s===cur){ cls='now'; dis=''; }
+    else if(s<=now){ cls='missed'; dis=''; }
+    return `<button class="slot-btn ${cls}"${dis} data-t="${t.id}" data-l="${locId}" data-s="${s}"
+      aria-label="${esc(t.title)} ronda ${s}${done?' hecha':''}" aria-pressed="${!!done}">
+      ${done?'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>':''}${s}</button>`;
+  }).join('');
+  const pendCur = cur && !slotDone(t, locId, cur);
+  return `<div class="task rec ${pendCur?'overdue':''}">
+    <span style="flex:1;min-width:200px">
+      <span class="t">${esc(t.title)}</span>
+      ${t.description?`<span class="d">${esc(t.description)}</span>`:''}
+      <span class="d">Cada ${t.every_minutes>=60 ? (t.every_minutes/60)+' h' : t.every_minutes+' min'}${next?` · próxima ronda ${next}`:' · última ronda del día'}</span>
+    </span>
+    <div class="slots">${chips}</div>
+  </div>`;
+}
+function checklistView(locId){
+  let sports = '';
+  if(sportsAgenda.length){
+    const today = todayStr();
+    sports = `<details class="panel" style="margin-bottom:14px" ${sportsAgenda.some(s=>s.event_date===today)?'open':''}>
+      <summary style="font-weight:800;cursor:pointer;min-height:44px;display:flex;align-items:center;gap:8px">\u{1F4FA} Agenda deportiva (pr\u00f3ximos 7 d\u00edas)</summary>
+      ${sportsAgenda.map(s=>{
+        const d2 = new Date(s.event_date+'T12:00');
+        const lbl = d2.toLocaleDateString('es-MX',{weekday:'short',day:'numeric',month:'short'});
+        const isToday = s.event_date===today;
+        return `<div class="txrow" style="box-shadow:none;border:1px solid var(--line);${isToday?'border-left:4px solid var(--gold);':''}">
+          <div class="c"><div class="t">${isToday?'HOY \u00b7 ':''}${esc(s.title)}</div>
+          <div class="m">${lbl}${s.league?' \u00b7 '+esc(s.league):''}</div></div></div>`;
+      }).join('')}
+      <p class="hint" style="margin-top:8px">Para las TVs del turno. Rod puede pedir en el chat que se agreguen m\u00e1s eventos.</p>
+    </details>`;
+  }
+
+  const all = forRole(forLocation(locId)).filter(t => dueToday(t, locId));
+  const recs = recurringFor(locId);
+  let recDue=0, recDone=0;
+  const now = hhmmNow();
+  for(const t of recs){ for(const s of slotsFor(t)){ if(s<=now){ recDue++; if(slotDone(t,locId,s)) recDone++; } } }
+  const doneCount = all.filter(t=>isDoneToday(t,locId)).length + recDone;
+  const total = all.length + recDue;
+  const pct = total ? Math.round(doneCount/total*100) : 0;
+
+  let html = sports;
+  const pend = pendingNow().filter(p=>p.locId===locId);
+  if(pend.length){
+    const p = pend[0];
+    html += `<div class="alarm-banner" role="alert">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+      <span>${esc(p.t.title)} — ronda de las ${p.slot}${pend.length>1?` (+${pend.length-1} más)`:''}</span>
+      <button class="go2" data-t="${p.t.id}" data-l="${locId}" data-s="${p.slot}">Ya está</button>
+    </div>`;
+  }
+  if(!alarmsOn && user.role!=='administradora' && recs.length){
+    html += `<div class="arm-note">
+      <span>Activa las alarmas para que la tablet suene cuando toque una ronda.</span>
+      <button id="armBtn">Activar alarmas</button>
+    </div>`;
+  }
+  html += `<div class="rail">
+    <div class="row"><span class="date">${fmtDate()}</span><span class="count">${doneCount} / ${total}</span></div>
+    <div class="track"><div class="fill ${pct===100?'done':''}" style="width:${pct}%"></div></div>
+  </div>`;
+  if(!total){ return html + `<div class="empty"><b>Sin tareas para hoy</b>Todo tranquilo por aquí.</div>`; }
+
+  if(recs.length){
+    html += `<div class="sec"><h2>Rondas del día</h2></div>`;
+    html += recs.map(t=>recurringCard(t, locId)).join('');
+  }
+  for(const area of AREA_ORDER){
+    const group = all.filter(t=>t.area===area);
+    if(!group.length) continue;
+    html += `<div class="sec"><h2>${AREAS[area]}</h2></div>`;
+    html += group.map(t=>taskTile(t, locId, {showChip:t.frequency==='interval'})).join('');
+  }
+  return html;
+}
+const TK_STATUS = {nuevo:['NUEVO','var(--red)'], seguimiento:['EN SEGUIMIENTO','var(--warn)'],
+  por_aprobar:['POR APROBAR','var(--gold)'], aprobado:['APROBADO','var(--ok)'], resuelto:['RESUELTO','var(--ink-2)']};
+async function loadMant(){
+  try{
+    const [eq, tk] = await Promise.all([
+      sb.from('equipment').select('*').eq('active', true).order('name'),
+      sb.from('tickets').select('*').order('updated_at', {ascending:false}).limit(120)
+    ]);
+    let upd = {data:[]};
+    if((tk.data||[]).length){
+      upd = await sb.from('ticket_updates').select('*')
+        .in('ticket_id', tk.data.map(t=>t.id)).order('created_at');
+    }
+    mantData = {equipment: eq.data||[], tickets: tk.data||[], updates: upd.data||[]};
+  }catch(e){ mantData = {equipment:[],tickets:[],updates:[]}; }
+  render();
+}
+async function uploadTicketPhoto(file){
+  const ext = (file.name.split('.').pop()||'jpg').toLowerCase();
+  const path = `t_${Date.now()}_${Math.random().toString(36).slice(2,8)}.${ext}`;
+  const {error} = await sb.storage.from('mant').upload(path, file, {contentType: file.type||'image/jpeg'});
+  if(error) throw error;
+  return sb.storage.from('mant').getPublicUrl(path).data.publicUrl;
+}
+function tkChip(st){
+  const [lbl, col] = TK_STATUS[st]||['?','var(--ink-2)'];
+  return `<span class="cat-chip" style="background:${col};color:#fff">${lbl}</span>`;
+}
+function ticketCard(t){
+  const eq = mantData.equipment.find(e=>e.id===t.equipment_id);
+  const last = [...mantData.updates].reverse().find(u=>u.ticket_id===t.id);
+  return `<button class="txrow" style="width:100%;text-align:left;${t.status==='nuevo'?'border-left-color:var(--red)':''}" data-tk="${t.id}">
+    <div class="c"><div class="t">${eq?esc(eq.name)+' \u00b7 #'+esc(eq.code):'Equipo general'} ${tkChip(t.status)}</div>
+    <div class="m">${esc(t.problem.slice(0,90))}</div>
+    ${last?`<div class="m" style="margin-top:4px;font-style:italic">\u00daltimo: ${esc(last.body.slice(0,70))}${last.amount?' \u00b7 '+money(last.amount):''}</div>`:''}
+    <div class="m" style="margin-top:2px">${LOCS[t.location_id]} \u00b7 ${new Date(t.created_at).toLocaleDateString('es-MX',{day:'numeric',month:'short'})}</div></div></button>`;
+}
+
+function render(){
+  const _sel = '.emp-scroll,.res-wrap,.lista-larga';
+  const _scrolls = [...document.querySelectorAll(_sel)].map(e=>[e.scrollTop, e.scrollLeft]);
+  renderCore();
+  requestAnimationFrame(()=>{
+    document.querySelectorAll(_sel).forEach((e,i)=>{
+      if(_scrolls[i]){ e.scrollTop = _scrolls[i][0]; e.scrollLeft = _scrolls[i][1]; }
+    });
+  });
+}
+function renderCore(){
+  const m = $('#main');
+  /* Herramientas es pestaña propia arriba, ya no vive dentro de Finanzas. */
+  const isFin = (user.role==='administradora' && ['mov','nom','hrr','eqp','invt','cor','pedido','rct','bco','rep','pla'].includes(tab))
+             || (user.role==='admin' && (tab==='fin' || tab==='hrr' || tab==='eqp'));
+  const finView = user.role==='administradora' ? tab : ((tab==='hrr'||tab==='eqp') ? tab : finSub);
+  const locId = user.role==='admin' ? adminLoc : user.location_id;
+
+  if(isFin){
+    let html = '';
+    if(user.role==='admin' && tab!=='hrr' && tab!=='eqp'){
+      html += `<div class="subnav" role="group" aria-label="Sección de finanzas">
+        <button aria-pressed="${finSub==='mov'}" data-fs="mov">Movs.</button>
+        <button aria-pressed="${finSub==='nom'}" data-fs="nom">Nómina</button>
+        <button aria-pressed="${finSub==='invt'}" data-fs="invt">Inventario</button>
+        <button aria-pressed="${finSub==='cor'}" data-fs="cor">Corte</button>
+        <button aria-pressed="${finSub==='pedido'}" data-fs="pedido">Pedido</button>
+        <button aria-pressed="${finSub==='bco'}" data-fs="bco">Banco</button>
+        <button aria-pressed="${finSub==='rct'}" data-fs="rct">Recetario</button>
+        <button aria-pressed="${finSub==='rep'}" data-fs="rep">Reporte</button>
+        <button aria-pressed="${finSub==='pla'}" data-fs="pla">Planilla</button>
+        <button aria-pressed="${finSub==='prod'}" data-fs="prod">Productos</button></div>`;
+    }
+    if(finView==='eqp') html += (employees.length||!finCargando ? eqView() : cargandoView('Cargando plantilla'));
+    else if(finView==='hrr') html += herrView();
+    else if(finView==='mov') html += movView();
+    else if(finView==='nom') html += (payData===null ? locSwitch(finLoc,'floc')+`<div class="empty"><b>Cargando nómina…</b></div>` : nomView());
+    else if(finView==='invt') html +=
+        invError ? locSwitch(finLoc,'floc')+invErrorView()
+      : catalogError ? locSwitch(finLoc,'floc')+invErrorView(catalogError)
+      : (catalog===null||invData===null) ? locSwitch(finLoc,'floc')+cargandoView('Cargando inventario')
+      : invSection();
+    else if(finView==='bco') html += (bankData===null ? locSwitch(finLoc,'floc')+`<div class="empty"><b>Cargando conciliación…</b></div>` : bankView());
+    else if(finView==='hor') html += (schData===null ? locSwitch(finLoc,'floc')+`<div class="empty"><b>Cargando horario…</b></div>` : schView());
+    /* Pedido ahora es la vista completa: sucursal, stock del inventario,
+       consumo, sugerido y orden de compra por proveedor. */
+    else if(finView==='pedido') html += (catalog===null||invData===null
+      ? locSwitch(finLoc,'floc')+cargandoView('Cargando pedido')
+      : pedidoSeccion());
+    else if(finView==='cor') html += (corData===null ? locSwitch(finLoc,'floc')+`<div class="empty"><b>Cargando corte…</b></div>` : corView());
+    else if(finView==='rct') html += (catalog===null ? cargandoView('Cargando recetario') : locSwitch(finLoc,'floc') + recView());
+    else if(finView==='pla') html += (planData===null ? locSwitch(finLoc,'floc')+`<div class="empty"><b>Cargando planilla…</b></div>` : planView());
+    else if(finView==='prod') html += hpView();
+    else html += repView();
+    m.innerHTML = html;
+    if(finView==='mov') wireMov();
+    if(finView==='hrr'){
+      $('#main').querySelectorAll('[data-hs]').forEach(b=>b.addEventListener('click', ()=>{ herrSub=b.dataset.hs; render(); }));
+      if(herrSub==='hor'){ if(schData===null) refreshSch(); else wireSch(); }
+      else if(herrSub==='fmt'){
+        $('#main').querySelectorAll('[data-fmtsub]').forEach(b=>b.addEventListener('click', ()=>{
+          fmtSub = b.dataset.fmtsub; render(); }));
+        if(fmtSub==='prv'){ if(prvLista===null && !prvCargando){ prvRefresca(); } wirePrv(); }
+        else { if(cotLista===null && !cotCargando){ cotRefresca(); } wireCot(); }
+      }
+      else wireCalc();
+    }
+    if(finView==='eqp'){
+      if(!employees.length && finCargando){
+        $('#invRetry')?.addEventListener('click', ()=>{ finCargando=false; refreshFinance(); });
+      } else {
+        wireEquipo();
+        /* Una sola vez: si la plantilla de verdad está vacía, pedirla otra vez
+           en cada repintado sería un ciclo sin fin. */
+        if(!employees.length && !_eqpPedido){ _eqpPedido = true; refreshFinance(); }
+      }
+    }
+    if(finView==='nom' && payData!==null) wireNom();
+    if(finView==='nom' && payData===null) refreshPayroll();
+    if(finView==='invt'){
+      $('#invRetry')?.addEventListener('click', reintentarInventario);
+      if(!invError && !catalogError){
+        aseguraCatalogo();
+        if(invData===null){ refreshInvWeek(); }
+        else if(catalog!==null){ wireInv(); }
+      }
+    }
+    if(finView==='bco'){ if(bankData===null){ refreshBank(); } else { wireBank(); } }
+    if(finView==='rct' && catalog!==null){ wireRec(); }
+    if(finView==='cor'){ if(corData===null){ refreshCor(); } else { wireCor(); } }
+    if(finView==='pedido'){
+      $('#invRetry')?.addEventListener('click', reintentarInventario);
+      aseguraCatalogo();
+      if(invData===null){ refreshInvWeek(); } else if(catalog!==null){ wireInv(); }
+    }
+    if(finView==='rct'){ $('#invRetry')?.addEventListener('click', reintentarInventario); aseguraCatalogo(); }
+    if(finView==='hor'){ if(schData===null){ refreshSch(); } else { wireSch(); } }
+    if(finView==='pla'){ if(planData===null){ refreshPlan(); } else { wirePlan(); } }
+    if(finView==='prod'){
+      /* La primera vez que se abre se pide sola: si no, la sección se ve vacía
+         y parece que no hay historial cuando sí lo hay. */
+      if(hpDatos===null && !hpCargando && !hpBaja){ hpRefresca(); }
+      else wireHprod();
+    }
+    $('#csvBtn')?.addEventListener('click', exportCsv);
+    m.querySelectorAll('[data-pm]').forEach(b=>b.addEventListener('click', ()=>{
+      const _fv2=user.role==='administradora'?tab:finSub;
+      if(!['mov','rep'].includes(_fv2)) return; // don't fire in other views
+      if(b.dataset.pm==='mes'){ if(finRange){ finRange=null; refreshFinance(); } }
+      else if(!finRange){
+        const [y,mm] = finMonth.split('-').map(Number);
+        finRange = {from: `${finMonth}-01`, to: dstr(new Date(y, mm, 0))};
+        refreshFinance();
+      }
+    }));
+    const updMon = ()=>{
+      const mm = $('#monSel')?.value, yy = $('#yrSel')?.value;
+      if(!mm||!yy) return;
+      finMonth = `${yy}-${String(mm).padStart(2,'0')}`;
+      refreshFinance();
+    };
+    $('#monSel')?.addEventListener('change', updMon);
+    $('#yrSel')?.addEventListener('change', updMon);
+    $('#rGo')?.addEventListener('click', ()=>{
+      const f = $('#rFrom').value, t = $('#rTo').value;
+      if(!f||!t){ toast('Elige las dos fechas'); return; }
+      if(f>t){ toast('La fecha inicial es mayor que la final'); return; }
+      finRange = {from:f, to:t};
+      refreshFinance();
+    });
+    m.querySelectorAll('[data-floc]').forEach(b=>b.addEventListener('click', ()=>{ finLoc=Number(b.dataset.floc);
+      /* Todo lo cargado pertenece a una sucursal. Al cambiarla hay que soltarlo
+         TODO, no solo lo de la pestaña abierta: si no, al volver a Inventario
+         se verían los datos de la otra sucursal. */
+      invData=null; invError=null; salesParse=null; invEdit={}; facLines=null;
+      payData=null; payCalc=null; manualOpen=false;
+      bankData=null; bankParse=null; schData=null; schEdit={};
+      corData=null; corEdit=null; planData=null; planEdit={};
+      /* El historial de productos es por sucursal: al cambiarla hay que
+         soltarlo, o se vería el de Guaymas con el rótulo de San Carlos. */
+      hpDatos=null; hpEstado=null; hpCat='';
+      if(finView==='prod'){ hpRefresca(); return; }
+      if(finView==='nom'){payData=null; payCalc=null; manualOpen=false; refreshPayroll(); return;} if(finView==='invt'){ invData=null; invError=null; salesParse=null; invEdit={}; facLines=null; refreshInvWeek(); return;} if(finView==='bco'){ bankData=null; bankParse=null; refreshBank(); return;} if(finView==='pedido'){ invData=null; invError=null; invEdit={}; pedEdit={}; refreshInvWeek(); return;} if(finView==='hrr'&&herrSub==='hor'){ schData=null; schEdit={}; refreshSch(); return;} if(finView==='pla'){ planData=null; planEdit={}; refreshPlan(); return;} if(finView==='cor'){ corData=null; corEdit=null; refreshCor(); return;} if(finView==='rct'){ recEditId=null; recDraft=null; recSel.clear(); recOnlyEmpty=false; render(); return;} if(finView==='rep'){ if(repSel){ repSel={week:repSel.week, loc:finLoc}; repDetail=null; loadRepDetail(); } render(); return;} render(); }));
+    /* Antes, cada vez que se cambiaba de pestaña se tiraba lo ya cargado y se
+       volvía a pedir todo a la base. Brincar entre Inventario y Corte tres
+       veces eran seis consultas completas: por eso se sentía trabada.
+       Ahora los datos se conservan; se recargan solos cuando cambia la semana
+       o la sucursal, que es cuando de verdad cambian. */
+    m.querySelectorAll('[data-fs]').forEach(b=>b.addEventListener('click', ()=>{ finSub=b.dataset.fs; if(finSub==='rep'){repSel=null; repDetail=null; if(!repWeekly||!repWeekly.length) refreshFinance();} if(finSub==='invt'){ invError=null; } if(finSub==='pedido'){pedData=null;pedEdit2={};if(_pedChannel){sb.removeChannel(_pedChannel);_pedChannel=null;}} render(); }));
+    m.querySelectorAll('[data-deltx]').forEach(b=>b.addEventListener('click', ()=>deleteTx(b.dataset.deltx)));
+    m.querySelectorAll('[data-repjump]').forEach(b=>b.addEventListener('click', ()=>{
+      const [wk, loc] = b.dataset.repjump.split('|');
+      finLoc = Number(loc);
+      repSel = {week: wk, loc: Number(loc)}; repDetail = null;
+      loadRepDetail(); render();
+      window.scrollTo({top:0, behavior:'smooth'});
+    }));
+    m.querySelectorAll('[data-rwk]').forEach(b=>b.addEventListener('click', ()=>{
+      const d = new Date(repSel.week+'T12:00'); d.setDate(d.getDate() + 7*Number(b.dataset.rwk));
+      repSel = {week: dstr(d), loc: finLoc}; repDetail = null;
+      loadRepDetail(); render();
+    }));
+    if(finView==='rep' && repSel && repDetail===null){ loadRepDetail(); }
+    $('#repBack')?.addEventListener('click', ()=>{ repSel=null; repDetail=null; render(); });
+    $('#repPrint')?.addEventListener('click', printWeeklyReport);
+    return;
+  }
+
+  if(user.role==='admin' && tab==='resumen'){
+    m.innerHTML = dashView(); wireDash();
+    /* En vivo vive dentro del Resumen como un periodo más. Cuando está
+       elegido hay que colgarle SUS botones y dejar el reloj andando; en
+       cualquier otro periodo el reloj se apaga, porque seguir preguntándole
+       al punto de venta por una pantalla que nadie ve solo gasta llamadas. */
+    if(dashPer==='vivo'){ if(typeof wireVivo==='function') wireVivo(); }
+    else if(typeof vivoDetiene==='function') vivoDetiene();
+    /* Consulta de cuentas vive en el mismo lugar: es otro periodo del Resumen,
+       el más fino de todos — el renglón por folio. */
+    if(dashPer==='cuentas' && typeof wireCtas==='function') wireCtas();
+  }
+  else if(user.role==='admin' && tab==='vivo'){ m.innerHTML = vivoView(); wireVivo(); }
+  else if(tab==='hoy'){ m.innerHTML = (user.role==='admin'?locSwitch(adminLoc,'loc'):'') + checklistView(locId); }
+  else if(tab==='mant'){
+    const suc = user.role==='admin' ? locSwitch(adminLoc,'loc') : '';
+    /* Los dos botones solo para el admin: el personal de piso entra directo a
+       su checklist y no tiene por qué ver el tablero de equipos. */
+    const sub = user.role==='admin'
+      ? `<div class="mode-tabs" role="group" aria-label="Mantenimiento">
+           <button aria-pressed="${mantSub==='mant'}" data-ms="mant">🔧 Mantenimiento</button>
+           <button aria-pressed="${mantSub==='chk'}" data-ms="chk">✅ Checklist del día</button>
+         </div>` : '';
+    if(user.role==='admin' && mantSub==='chk'){
+      m.innerHTML = sub + suc + checklistView(locId);
+    } else {
+      m.innerHTML = sub + suc + maintView(locId);
+      wireMant(locId);
+    }
+    m.querySelectorAll('[data-ms]').forEach(b=>b.addEventListener('click', ()=>{
+      mantSub = b.dataset.ms; render(); }));
+  }
+  else if(tab==='nueva'){ m.innerHTML = newTaskForm(); wireForm(); }
+
+  m.querySelectorAll('.task:not(.rec)').forEach(b=>b.addEventListener('click', ()=>toggleTask(b.dataset.t, Number(b.dataset.l))));
+  m.querySelectorAll('.slot-btn, .alarm-banner .go2').forEach(b=>b.addEventListener('click', ()=>toggleTask(b.dataset.t, Number(b.dataset.l), b.dataset.s)));
+  m.querySelector('#armBtn')?.addEventListener('click', armAlarms);
+  m.querySelectorAll('[data-loc]').forEach(b=>b.addEventListener('click', ()=>{ adminLoc=Number(b.dataset.loc); render(); }));
+}
+
+/* ---------- boot ---------- */
+localStorage.removeItem('boyes_user');
+const saved = localStorage.getItem('boyes_user_v2');
+if(saved){ try{ user = JSON.parse(saved); enterApp(); }catch{ localStorage.removeItem('boyes_user_v2'); } }
+
+
+/* === PLANILLA (inline for instant availability) === */
+
+/* ================================================================
+   PLANILLA MENSUAL — formato idéntico al Excel de San Carlos
+================================================================ */
+
+const PLAN_GV = [
+  'ABARROTE - SUPER MERCADO','TOCINO','CARNES YOREME','CERVEZA','PANADERIA',
+  'DISEÑO GRAFICO (FLYERS, IMPRESIONES, ETC)','QUESOS Y QUESOS','COCA COLA',
+  'DESECHABLES','GASOLINA','GAS','HARINA','MIXTURA','TRANSPORTE TAXI',
+  'MANTENIMIENTO','NOMINA','SAMS',"EMPAQUES BOYE'S",'ARTICULOS DE LIMPIEZA','RZ',
+  'INVERSION','ESPECIAS MOY','PROPINA','UNIFORMES','AGUA/HIELO','VERDURA',
+  'AGUINALDOS/VACACIONES/FINIQUITOS','SURTICHEF','EVENTOS - POSADAS - CUMPLEAÑOS',
+  'MARISCO','VINO CLUB/ALCOHOL'
+];
+const PLAN_GF = [
+  'AGUA CEA','MEGACABLE','FUMUGACION','CONTABILIDAD','IMSS','ISR Y 2%',
+  'LUZ + PANEL SOLAR MENSUALIDAD','PUBLICIDAD','RECOLECCION BASURA','RENTA','TELMEX',
+  'SOFT RESTAURANT + FACTURACION TIMBRES','VEHICULO RZ','ANUALIDAD PAGINA WEB',
+  'COMISIONES BANCARIAS','EVENTOS - POSADAS - CUMPLEAÑOS','TRAMPA DE GRASA','TELEFONO RZ'
+];
+
+async function refreshPlan(){
+  planExtra=[]; planSem=null;
+  /* Lo traído del punto de venta pertenece a un mes y a una sucursal. Al
+     cambiar cualquiera de los dos deja de aplicar, y dejarlo en pantalla es
+     peor que no tenerlo: se lee como si fuera de lo que ahora se ve. */
+  if(typeof pvData !== 'undefined'){ pvData=null; pvError=null; pvClave=null; }
+  if(typeof tjData !== 'undefined'){ tjData=null; tjError=null; tjClave=null; }
+  if(typeof dgData !== 'undefined'){ dgData=null; dgError=null; }
+  try{
+    const {data}=await sb.from('planilla_months').select('*')
+      .eq('location_id',finLoc).eq('year_month',planMonth).limit(1);
+    planData=data&&data.length?data[0]:{
+      location_id:finLoc,year_month:planMonth,
+      ventas:{},gastos_var:{},gastos_fijos:{},banco:{},formato:{}
+    };
+    planEdit={
+      ventas:JSON.parse(JSON.stringify(planData.ventas||{})),
+      gastos_var:JSON.parse(JSON.stringify(planData.gastos_var||{})),
+      gastos_fijos:JSON.parse(JSON.stringify(planData.gastos_fijos||{})),
+      banco:JSON.parse(JSON.stringify(planData.banco||{})),
+      formato:JSON.parse(JSON.stringify(planData.formato||{}))
+    };
+  }catch(e){
+    planData={};
+    planEdit={ventas:{},gastos_var:{},gastos_fijos:{},banco:{},formato:{}};
+  }
+  plaVou = await vouchersDelMes(finLoc, planMonth);
+  plaVouClave = `${finLoc}|${planMonth}`;
+  render();
+}
+
+/* ------------------------------------------------------------------
+   Los vouchers de la terminal, del corte a la planilla.
+
+   Karen revisa los vouchers el lunes —los cortes de la semana están en la
+   caja fuerte— y captura día por día, en el corte, cuánto cobró de verdad
+   la terminal. Ese número no sale de Soft: sale del aparato que le manda
+   el cargo al banco, y es el que después aparece en el estado de cuenta.
+
+   Aquí se trae a la planilla para que el renglón de TARJETA BANCARIA REAL
+   no se capture dos veces. Se guarda por semana (week_start + tc_days), y
+   la planilla es por mes: hay que pedir también la semana que arranca en
+   el mes anterior, porque sus últimos días caen en éste.
+
+   Un cero no es venta de cero: es un día sin capturar. Por eso se omite.
+
+   La tabla de cortes no se lee directo: tiene RLS sin políticas, como todo
+   lo de dinero en este proyecto. Va por RPC, igual que el resto.
+   ------------------------------------------------------------------ */
+let plaVou = {}, plaVouClave = null;
+
+async function vouchersDelMes(locId, ym){
+  try{
+    const d = await finRpc('cor_vouchers_mes', { p_loc: Number(locId), p_ym: ym }, 8000);
+    const out = {};
+    for(const [k, v] of Object.entries(d || {})) out[Number(k)] = Number(v);
+    return out;
+  }catch(e){ return {}; }   /* sin cortes la planilla se ve igual que siempre */
+}
+
+function planDays(ym){const [y,m]=ym.split('-').map(Number);return new Date(y,m,0).getDate();}
+function planDowShort(ym,d){
+  const [y,m]=ym.split('-').map(Number);
+  return ['D','L','M','M','J','V','S'][new Date(y,m-1,d).getDay()];
+}
+function planWeeks(ym){
+  const days=planDays(ym);
+  const weeks=[]; let cur=null;
+  for(let d=1;d<=days;d++){
+    const dow=planDowShort(ym,d);
+    if(dow==='L'||d===1){if(cur)weeks.push(cur);cur={wk:weeks.length+1,days:[]};}
+    cur.days.push(d);
+  }
+  if(cur)weeks.push(cur);
+  return weeks;
+}
+function planN(v){return v===''||v===null||v===undefined?0:Number(v)||0;}
+
+function planView(){
+  const [y,m]=planMonth.split('-').map(Number);
+  const mn=new Date(y,m-1,1).toLocaleString('es-MX',{month:'long',year:'numeric'});
+  const prev=new Date(y,m-2,1).toISOString().slice(0,7);
+  const next=new Date(y,m,1).toISOString().slice(0,7);
+  let h = planTab==='conc' ? '' : locSwitch(finLoc,'floc');
+  if(planTab!=='conc') h+=`<div class="weeknav" style="margin-bottom:12px">
+    <button data-planm="${prev}">‹</button>
+    <b style="text-transform:capitalize;font-size:17px">${mn}</b>
+    <button data-planm="${next}">›</button>
+  </div>`;
+  h+=`<div class="switch" style="margin-bottom:10px">
+    <button aria-pressed="${planTab==='graf'}" data-plantab="graf">📈 Resumen</button>
+    <button aria-pressed="${planTab==='main'}" data-plantab="main">📊 Planilla</button>
+    <button aria-pressed="${planTab==='fijos'}" data-plantab="fijos">🔒 Gastos fijos</button>
+    <button aria-pressed="${planTab==='banco'}" data-plantab="banco">🏦 Banco</button>
+    <button aria-pressed="${planTab==='tarj'}" data-plantab="tarj">💳 Tarjeta</button>
+    <button aria-pressed="${planTab==='conc'}" data-plantab="conc">🔍 Conciliación</button>
+  </div>`;
+  if(planTab==='graf') h+=planViewGraf();
+  else if(planTab==='fijos') h+=planViewF();
+  else if(planTab==='banco') h+=planViewB();
+  else if(planTab==='conc') h+=concView();
+  else if(planTab==='tarj') h+=(typeof tjView==='function'?tjView():'');
+  else h+=planViewMain();
+  if(!['graf','conc'].includes(planTab)) h+=`<div class="frm-row" style="margin-top:14px">
+    <button class="btn-primary" id="planSave">💾 Guardar</button>
+    <button class="btn-quiet" id="planExport">⬇ Exportar Excel</button>
+  </div>`;
+  return h;
+}
+
+/* ================================================================
+   Las familias de gasto. Cada renglón de la planilla de Rod trae una
+   letra al final —A de alimentos, B de bebidas— y esa letra es la que
+   permite decir al cierre del mes "de todo lo que gastamos, tanto fue
+   comida". El mapa de aquí abajo es el arranque; él puede corregir
+   cualquier renglón desde el resumen y la corrección se queda.
+================================================================ */
+const PLAN_FAM = {
+  A:     {n:'Alimentos',            c:'#2E9E5B'},
+  B:     {n:'Bebidas',              c:'#2A78D6'},
+  C:     {n:'Cerveza',              c:'#D9A400'},
+  E:     {n:'Empaques',             c:'#D6487E'},
+  G:     {n:'Gas',                  c:'#E07B2A'},
+  'G y T':{n:'Gasolina y transporte',c:'#B4651A'},
+  I:     {n:'Inversión',            c:'#4A5BB8'},
+  L:     {n:'Limpieza',             c:'#9C4DCC'},
+  M:     {n:'Mantenimiento',        c:'#8D6E63'},
+  N:     {n:'Nómina',               c:'#D43E3E'},
+  O:     {n:'Otros',                c:'#9E9E9E'},
+  RH:    {n:'Recursos humanos',     c:'#C2185B'},
+  RZ:    {n:'RZ',                   c:'#7E57C2'},
+  U:     {n:'Uniformes',            c:'#5B6472'}
+};
+/* Este mapa salió del propio Excel de Rod —la columna de la letra, renglón por
+   renglón— no de mi criterio. Es el arranque para un concepto nuevo; los meses
+   ya cargados traen su letra guardada. */
+const FAM_DEF = {
+  'ABARROTE - SUPER MERCADO':'A','TOCINO':'A','CARNES YOREME':'A','PANADERIA':'A',
+  'QUESOS Y QUESOS':'A','HARINA':'A','SAMS':'A','ESPECIAS MOY':'A','VERDURA':'A',
+  'DISEÑO GRAFICO (FLYERS, IMPRESIONES, ETC)':'A','MARISCO':'A',
+  'COCA COLA':'B','AGUA/HIELO':'B','MIXTURA':'B','VINO CLUB/ALCOHOL':'B',
+  'CERVEZA':'C',
+  "EMPAQUES BOYE'S":'E',
+  'GAS':'G', 'GASOLINA':'G y T','TRANSPORTE TAXI':'G y T',
+  'INVERSION':'I','SURTICHEF':'I',
+  'ARTICULOS DE LIMPIEZA':'L',
+  'MANTENIMIENTO':'M',
+  'NOMINA':'N',
+  'DESECHABLES':'O','PROPINA':'O','EVENTOS - POSADAS - CUMPLEAÑOS':'O',
+  'AGUINALDOS/VACACIONES/FINIQUITOS':'RH',
+  'RZ':'RZ',
+  'UNIFORMES':'U'
+};
+
+/* La letra de un concepto: primero lo que Rod corrigió en este mes, luego lo
+   que corrigió alguna vez (para que no lo tenga que rehacer cada mes), y al
+   final el mapa de fábrica. */
+function planFamDe(cat){
+  const ov = (planEdit.formato||{})._fam || {};
+  if(ov[cat]) return ov[cat];
+  try{ const ls = JSON.parse(localStorage.getItem('boyes_plan_fam')||'{}'); if(ls[cat]) return ls[cat]; }catch(_){}
+  return FAM_DEF[cat] || 'O';
+}
+function planFamSet(cat, letra){
+  planEdit.formato = planEdit.formato || {};
+  planEdit.formato._fam = planEdit.formato._fam || {};
+  planEdit.formato._fam[cat] = letra;
+  try{
+    const ls = JSON.parse(localStorage.getItem('boyes_plan_fam')||'{}');
+    ls[cat] = letra;
+    localStorage.setItem('boyes_plan_fam', JSON.stringify(ls));
+  }catch(_){}
+}
+function famChip(letra){
+  const f = PLAN_FAM[letra] || PLAN_FAM.O;
+  return `<span class="fam" style="background:${f.c}" title="${esc(f.n)}">${esc(letra)}</span>`;
+}
+
+/* Los conceptos que se muestran: los que tienen movimiento en el mes, más los
+   que Rod agregó a mano. Una tabla de 29 renglones repetida cinco veces es
+   ilegible cuando veinte de esos renglones están vacíos. */
+function planGVVisibles(){
+  const g = planEdit.gastos_var || {};
+  if(planTodos) return PLAN_GV.slice();
+  const conMovimiento = PLAN_GV.filter(c => Object.values(g[c]||{}).some(x => planN(x) !== 0));
+  const lista = [...new Set([...conMovimiento, ...planExtra])];
+  return lista.length ? PLAN_GV.filter(c => lista.includes(c)) : PLAN_GV.slice();
+}
+
+/* Al abrir un mes, cae parado en la semana de hoy —no en la semana 1— porque
+   la captura casi siempre es de esta semana. En un mes pasado abre en la
+   primera, que es por donde se revisa. */
+function planSemHoy(weeks){
+  const hoy = new Date();
+  const ym = hoy.toISOString().slice(0,7);
+  if(ym !== planMonth) return 0;
+  const d = hoy.getDate();
+  const i = weeks.findIndex(w=>w.days.includes(d));
+  return i<0 ? 0 : i;
+}
+
+/* Sacados del propio archivo, no aproximados: son los rellenos que trae su
+   Excel de San Carlos 2026. */
+const P_AZUL = '#00B0F0';   // totales: columna TOTAL, VENTA TOTAL DIARIA, TOTAL DE GASTOS
+const P_NARA = '#FF9900';   // el total general de cada renglón de total
+const P_ROJO = '#FF0000';   // la columna del domingo en el bloque de gastos
+
+function planViewMain(){
+  const weeks = planWeeks(planMonth);
+  const v = planEdit.ventas || {};
+  const g = planEdit.gastos_var || {};
+  const cats = planGVVisibles();
+  const [yy, mm] = planMonth.split('-').map(Number);
+  const nomMes = new Date(yy, mm-1, 1).toLocaleString('es-MX',{month:'long'});
+
+  const css = `<style>
+    /* Cada semana es su propio bloque, como en la hoja de Rod. Ocho columnas
+       caben en una pantalla; treinta y una nunca cupieron. */
+    /* El navegador de semanas: flechas a los lados y una ficha por semana en
+       medio, como los chips de Inventario que ya conoce la mano. */
+    .wknav{display:flex;align-items:stretch;gap:8px;margin:0 0 10px}
+    .wkbtn{flex:none;width:40px;border:1px solid #D8D2C4;border-radius:10px;background:var(--card);
+           font-size:21px;font-weight:800;color:var(--navy);cursor:pointer;line-height:1}
+    .wkbtn:disabled{opacity:.32;cursor:default}
+    .wkbtn:not(:disabled):hover{background:#F2EFE7}
+    .wkchips{flex:1;display:flex;gap:6px;overflow-x:auto;-webkit-overflow-scrolling:touch;
+             scrollbar-width:none}
+    .wkchips::-webkit-scrollbar{display:none}
+    .wkchip{flex:1 0 auto;min-width:82px;border:1px solid #D8D2C4;border-radius:10px;
+            background:var(--card);padding:6px 10px;cursor:pointer;font-family:inherit;
+            display:flex;flex-direction:column;align-items:center;gap:1px;line-height:1.15}
+    .wkchip .n{font-size:11.5px;font-weight:800;letter-spacing:.05em;color:var(--navy)}
+    .wkchip .r{font-size:10.5px;font-weight:600;color:var(--ink-2);font-variant-numeric:tabular-nums}
+    .wkchip.on{background:${P_AZUL};border-color:#2F8FC9}
+    .wkchip.on .n,.wkchip.on .r{color:#06283F}
+    .wk{margin:0 0 16px;border:1px solid #D8D2C4;border-radius:12px;overflow:hidden;
+        background:var(--card);box-shadow:0 1px 2px rgba(19,35,59,.06)}
+    .wk-h{display:flex;align-items:baseline;gap:10px;padding:9px 13px;
+          background:${P_AZUL};color:#08324F;font-weight:900;font-size:13px;letter-spacing:.1em}
+    .wk-h .sub{font-weight:600;font-size:11.5px;letter-spacing:.01em;color:#0B3A5C;opacity:.9}
+    .wk-h .tot{margin-left:auto;font-size:14px;font-weight:900;letter-spacing:0;
+               font-variant-numeric:tabular-nums}
+    .wk-sc{overflow-x:auto;-webkit-overflow-scrolling:touch}
+    /* Sin min-width:max-content. Un <input> sin tamaño declarado pide ~200px de
+       ancho intrínseco, y con max-content la tabla obedecía: siete días se iban
+       a 1,777px y volvían a obligar a desplazarse de lado —justo lo que se
+       estaba arreglando. Ahora la columna del concepto es la glotona y los días
+       se quedan en su mínimo. */
+    /* Anchos mandados, no negociados. Con reparto automático la columna del
+       concepto se comía el espacio y los importes salían cortados ("17339."):
+       ahora el concepto tiene su ancho, el TOTAL el suyo, y los siete días se
+       reparten lo que queda en partes iguales. El min-width hace que en el
+       celular la tabla se desplace en vez de aplastarse. */
+    .pt{border-collapse:separate;border-spacing:0;font-size:13px;width:100%;
+        table-layout:fixed;min-width:768px;
+        font-variant-numeric:tabular-nums lining-nums}
+    .pt td,.pt th{overflow:hidden;text-overflow:ellipsis}
+    .pt th,.pt td{padding:0;white-space:nowrap;border:0;
+                  border-bottom:1px solid #DCD6C8;border-right:1px solid #E6E1D4}
+    .pt th{background:var(--navy);color:#fff;padding:6px 6px;font-size:11px;font-weight:700;
+           text-align:center;letter-spacing:.03em;border-bottom:0}
+    .pt thead th{position:sticky;top:0;z-index:4}
+    .pt .cl{background:var(--card);font-weight:600;padding:5px 10px;font-size:12.5px;
+            width:212px;white-space:normal;line-height:1.25;
+            position:sticky;left:0;z-index:3;box-shadow:1px 0 0 #E3DFD5, 6px 0 10px -8px rgba(19,35,59,.22);
+            letter-spacing:.01em}
+    .pt thead .cl{background:var(--navy);z-index:6;text-align:left}
+    .pt .fin{background:#F7F4EC}
+    .pt thead .fin{background:#33507E}
+    /* El domingo cierra la semana y en su Excel esa columna va en rojo pleno.
+       Con números encima el rojo pleno no se lee, así que el color va entero en
+       el encabezado del día y como velo en las casillas de gasto. */
+    .pt thead th.dom{background:${P_ROJO};color:#fff}
+    .pt tbody tr.gas td.dom{background:${P_ROJO}22}
+    .pt tbody tr.gas:hover td.dom{background:${P_ROJO}33}
+    /* La columna TOTAL lleva el azul cielo de su hoja, en todos los renglones. */
+    .pt .tc{background:${P_AZUL}1F;font-weight:800;padding:6px 8px;text-align:right;min-width:84px;
+            box-shadow:inset 1px 0 0 #BFE0F5;color:#0B3A5C}
+    .pt thead .tc{background:${P_AZUL};color:#08324F;font-weight:900}
+    /* Los renglones de total: azul lleno, como VENTA TOTAL DIARIA y TOTAL DE
+       GASTOS en su Excel. */
+    .pt tr.tot td{background:${P_AZUL};color:#06283F;font-weight:900;padding:7px 7px;font-size:12px;
+                  text-align:right;border-bottom-color:#3E96CC}
+    .pt tr.tot td.cl{background:${P_AZUL};text-align:left;font-weight:900;letter-spacing:.02em}
+    .pt tr.tot td.tc{background:${P_NARA};color:#3A2100;box-shadow:inset 1px 0 0 #D2842A}
+    .pt .sh td{color:#fff;font-weight:800;font-size:11.5px;padding:0;letter-spacing:.1em;
+               text-transform:uppercase;border-bottom:0}
+    .pt .sh td b{position:sticky;left:0;display:inline-block;padding:8px 12px;font-weight:800}
+    .pt tbody td{background:var(--card)}
+    .pt tbody tr:hover td{background-color:#FBFAF6}
+    .pt input{border:0;width:100%;min-width:0;min-height:31px;padding:2px 9px;text-align:right;
+              font-size:13px;background:transparent;font-family:inherit;font-weight:600;
+              font-variant-numeric:tabular-nums lining-nums;display:block;color:var(--ink);
+              border-radius:6px}
+    .pt input::placeholder{color:#C6C1B4;font-weight:400}
+    .pt input:hover{background:#F4F2EC}
+    .pt input:focus{background:#FFFBEA;outline:2px solid var(--gold);outline-offset:-2px}
+    .pt tr.pt-fila td{background-color:#FFF8E0}
+    .pt td.pt-col{background-color:#FFF8E0}
+    .pt tr.pt-fila .cl{background-color:#FDF0C4;font-weight:800}
+    .pt tbody .cl{background:var(--card)}
+    .pt tbody tr.pt-fila .cl{background:#FDF0C4}
+    /* La letra de familia. Chica, con color, pegada al concepto: se lee de
+       reojo sin robarle espacio al número. */
+    .fam{display:inline-block;min-width:17px;height:17px;line-height:17px;border-radius:4px;
+         color:#fff;font-size:10px;font-weight:900;text-align:center;margin-right:7px;
+         padding:0 3px;vertical-align:1px;letter-spacing:.02em}
+    .pt-cta{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0 0 12px}
+    .pt-cta select{padding:7px 9px;border:1px solid #D8D2C4;border-radius:8px;background:var(--card);
+                   font-family:inherit;font-size:12.5px;max-width:230px}
+    /* El desglose por familia: la respuesta a "de este mes, cuánto fue comida". */
+    .famg{display:grid;gap:8px;grid-template-columns:repeat(auto-fill,minmax(174px,1fr));margin-top:4px}
+    .famc{border:1px solid #E1DCD0;border-radius:10px;padding:9px 11px;background:var(--card);
+          border-left-width:5px}
+    .famc .l{font-size:11px;font-weight:800;letter-spacing:.05em;text-transform:uppercase;color:#6B6455}
+    .famc .v{font-size:17px;font-weight:900;font-variant-numeric:tabular-nums;margin-top:1px}
+    .famc .s{font-size:11px;color:#7A7365;font-weight:600}
+    @media(max-width:640px){ .pt{min-width:700px} .pt .cl{width:150px;font-size:12px;padding:4px 8px} }
+  </style>`;
+
+  /* ---------- un bloque por semana ---------- */
+  const filaVenta = (w, label, key, extraCls) => {
+    let wk = 0, cel = '';
+    w.days.forEach(d=>{
+      wk += planN((v[d]||{})[key]);
+      cel += `<td><input type="text" size="1" inputmode="decimal" class="nospin" data-pv="${d}" data-pvf="${key}" value="${(v[d]||{})[key]||''}"></td>`;
+    });
+    return `<tr class="${extraCls||''}"><td class="cl">${label}</td>${cel}<td class="tc">${wk>0?money0(wk):''}</td></tr>`;
+  };
+
+  let h = css;
+
+  /* Barra de acciones: la de formato de siempre, más el interruptor de
+     conceptos, que es lo que evita que cada semana traiga 29 renglones en
+     blanco. */
+  h += fmtBarra();
+  const ocultos = PLAN_GV.filter(c=>!cats.includes(c));
+  h += `<div class="pt-cta">
+    <button class="btn-quiet" data-planall="${planTodos?'0':'1'}">${planTodos?'Ocultar conceptos sin movimiento':`Ver los ${PLAN_GV.length} conceptos`}</button>
+    ${ocultos.length?`<select id="planAdd"><option value="">+ Agregar concepto…</option>${
+      ocultos.map(c=>`<option value="${esc(c)}">${esc(c)}</option>`).join('')}</select>`:''}
+    <span class="hint" style="margin:0">${cats.length} de ${PLAN_GV.length} conceptos a la vista</span>
+  </div>`;
+
+  /* Los totales de todas las semanas se calculan siempre —el resumen del mes
+     los necesita— aunque en pantalla solo se dibuje la semana activa. */
+  const semTot = weeks.map(w=>{
+    let venta = 0, gasto = 0;
+    w.days.forEach(d=>{
+      venta += planN((v[d]||{}).ef) + planN((v[d]||{}).tj)
+             + planN((v[d]||{}).ra) + planN((v[d]||{}).mq);
+      gasto += cats.reduce((s,c)=>s+planN((g[c]||{})[d]), 0);
+    });
+    return {wk:w.wk, venta, gasto, dias:w.days.slice()};
+  });
+
+  /* Una semana a la vez, y se pasa de lado. Apiladas hacia abajo obligaban a
+     bajar media pantalla para comparar el lunes con el domingo; de lado, la
+     semana entera está siempre a la misma altura. */
+  if(planSem===null || planSem===undefined) planSem = planSemHoy(weeks);
+  planSem = Math.max(0, Math.min(weeks.length-1, planSem));
+  const w = weeks[planSem], st = semTot[planSem];
+  const dIni = w.days[0], dFin = w.days[w.days.length-1];
+
+  h += `<div class="wknav">
+    <button class="wkbtn" data-plansem="${planSem-1}" ${planSem===0?'disabled':''} aria-label="Semana anterior">‹</button>
+    <div class="wkchips">${weeks.map((x,i)=>`
+      <button class="wkchip${i===planSem?' on':''}" data-plansem="${i}">
+        <span class="n">SEM ${x.wk}</span>
+        <span class="r">${x.days[0]}–${x.days[x.days.length-1]}</span>
+      </button>`).join('')}</div>
+    <button class="wkbtn" data-plansem="${planSem+1}" ${planSem===weeks.length-1?'disabled':''} aria-label="Semana siguiente">›</button>
+  </div>`;
+
+  h += `<div class="wk" id="wkSlide">
+      <div class="wk-h">SEMANA ${w.wk}
+        <span class="sub">${dIni===dFin?`${dIni}`:`${dIni} al ${dFin}`} de ${nomMes}</span>
+        <span class="tot">${st.venta>0?money(st.venta):'—'}</span></div>
+      <div class="wk-sc"><table class="pt">
+        <colgroup><col style="width:212px">${w.days.map(()=>'<col>').join('')}<col style="width:104px"></colgroup>
+        <thead><tr>
+        <th class="cl">CONCEPTO</th>`;
+  w.days.forEach(d=>{
+    const dow = planDowShort(planMonth, d);
+    const fin = dow==='S'||dow==='D';
+    h += `<th class="${dow==='D'?'dom':(fin?'fin':'')}" style="padding:5px 4px;font-size:10px">${dow}<br>
+          <span style="font-size:12.5px;font-weight:800">${d}</span></th>`;
+  });
+  h += `<th class="tc">TOTAL</th></tr></thead><tbody>`;
+
+  // ventas
+  h += `<tr class="sh"><td colspan="${w.days.length+2}" style="background:#1B2E4D"><b>Ventas</b></td></tr>`;
+  h += filaVenta(w,'EFECTIVO','ef','er');
+  h += filaVenta(w,'TARJETA BANCARIA CORTE','tj','tr');
+
+  /* TARJETA BANCARIA REAL ya no se teclea: llega del corte de la semana, que
+     es donde Karen ya capturó el voucher de la terminal. Si alguien escribió
+     algo a mano en un día, eso manda —no se le borra su corrección—, y se
+     marca para que se vea que ese número no vino del corte. */
+  const vouOk = plaVouClave === `${finLoc}|${planMonth}`;
+  {
+    let wk = 0, cel = '', delCorte = 0, aMano = 0, sinDato = 0;
+    w.days.forEach(d=>{
+      const manual = planN((v[d]||{}).tr);
+      const corte  = vouOk && plaVou[d] != null ? Number(plaVou[d]) : null;
+      const val = manual > 0 ? manual : corte;
+      if(manual > 0) aMano++; else if(corte !== null) delCorte++; else sinDato++;
+      wk += val || 0;
+      cel += val === null || val === undefined
+        ? `<td><span style="color:#A8A296">—</span></td>`
+        : `<td${manual>0?' title="Capturado a mano en la planilla, no viene del corte"':' title="Voucher de la terminal, tomado del corte de esa semana"'}
+             style="color:${manual>0?'#B36B00':'#7A3EA1'};font-weight:700">${money0(val)}</td>`;
+    });
+    h += `<tr class="tr"><td class="cl">TARJETA BANCARIA REAL <span style="font-weight:500;color:#7A7365">(voucher terminal)</span></td>${cel}<td class="tc">${wk>0?money0(wk):''}</td></tr>`;
+
+    /* El renglón que Rod pidió ver: lo que la terminal cobró de verdad contra
+       lo que se capturó del sistema. Solo se calcula en los días que tienen
+       las dos cosas — restar contra un día sin voucher daría un rojo falso. */
+    let difT = 0, celD = '', diasComp = 0;
+    w.days.forEach(d=>{
+      const manual = planN((v[d]||{}).tr);
+      const corte  = vouOk && plaVou[d] != null ? Number(plaVou[d]) : null;
+      const real = manual > 0 ? manual : corte;
+      const cap  = planN((v[d]||{}).tj);
+      if(real === null || real === undefined || !cap){ celD += `<td></td>`; return; }
+      const x = Math.round((real - cap)*100)/100;
+      difT += x; diasComp++;
+      celD += `<td style="color:${Math.abs(x)<1?'#0B6E3F':'#C0261F'};font-weight:800">${
+        Math.abs(x)<1 ? '✓' : money0(x)}</td>`;
+    });
+    h += `<tr><td class="cl" style="font-size:11.5px">DIFERENCIA <span style="font-weight:500;color:#7A7365">real − corte</span></td>${celD}<td class="tc" style="color:${Math.abs(difT)<1?'#0B6E3F':'#C0261F'};font-weight:800">${
+      diasComp ? (Math.abs(difT)<1?'✓':money0(difT)) : ''}</td></tr>`;
+
+    if(sinDato && !aMano)
+      h += `<tr><td class="cl" colspan="${w.days.length+2}" style="white-space:normal;font-size:11.5px;color:#7A7365;padding:5px 10px;background:#FBFAF6">
+        ${delCorte ? `${delCorte} de ${w.days.length} días con voucher del corte.` : 'Esta semana todavía no tiene voucher capturado en el corte.'}
+        Los días en gris no son diferencia de cero: es que falta el corte.</td></tr>`;
+  }
+
+  h += filaVenta(w,'RAPPI','ra');
+  h += filaVenta(w,'MAQUILAS TETAKAWI','mq');
+
+  h += `<tr class="tot"><td class="cl">VENTA TOTAL DIARIA</td>`;
+  w.days.forEach(d=>{
+    const t = planN((v[d]||{}).ef)+planN((v[d]||{}).tj)+planN((v[d]||{}).ra)+planN((v[d]||{}).mq);
+    h += `<td>${t>0?money0(t):''}</td>`;
+  });
+  h += `<td class="tc">${st.venta>0?money0(st.venta):''}</td></tr>`;
+
+  // gastos
+  h += `<tr class="sh"><td colspan="${w.days.length+2}" style="background:#175637"><b>Gastos</b></td></tr>`;
+  cats.forEach(cat=>{
+    const gc = g[cat] || {};
+    let rowT = 0, cel = '';
+    w.days.forEach(d=>{
+      rowT += planN(gc[d]);
+      const dom = planDowShort(planMonth, d)==='D' ? ' class="dom"' : '';
+      cel += `<td${dom}><input type="text" size="1" inputmode="decimal" class="nospin" data-pg="${esc(cat)}" data-pgd="${d}" value="${gc[d]||''}"></td>`;
+    });
+    h += `<tr class="gas"><td class="cl">${famChip(planFamDe(cat))}${esc(cat)}</td>${cel}<td class="tc">${rowT>0?money0(rowT):''}</td></tr>`;
+  });
+
+  h += `<tr class="tot"><td class="cl">TOTAL DE GASTOS</td>`;
+  w.days.forEach(d=>{
+    const t = cats.reduce((s,c)=>s+planN((g[c]||{})[d]), 0);
+    h += `<td>${t>0?money0(t):''}</td>`;
+  });
+  h += `<td class="tc">${st.gasto>0?money0(st.gasto):''}</td></tr>`;
+  h += `</tbody></table></div></div>`;
+
+  if(typeof pvPanel === 'function') h += pvPanel(w);
+
+  /* ---------- resumen del mes ---------- */
+  const vtMes = semTot.reduce((s,x)=>s+x.venta, 0);
+  const gvMes = PLAN_GV.reduce((s,c)=>s+Object.values(g[c]||{}).reduce((a,b)=>a+planN(b),0), 0);
+  const totalFijos = Object.values(planEdit.gastos_fijos||{}).reduce((s,r)=>s+planN(r.monto), 0);
+  const util = vtMes - gvMes - totalFijos;
+
+  // por familia
+  const porFam = {};
+  PLAN_GV.forEach(c=>{
+    const mes = Object.values(g[c]||{}).reduce((a,b)=>a+planN(b), 0);
+    if(!mes) return;
+    const f = planFamDe(c);
+    porFam[f] = (porFam[f]||0) + mes;
+  });
+  const famOrden = Object.entries(porFam).sort((a,b)=>b[1]-a[1]);
+
+  h += `<div class="panel"><div class="d-h3">Cómo se repartió el gasto del mes</div>
+    <p class="hint" style="margin:0 0 10px">Cada concepto lleva su letra —A alimentos, B bebidas, C cerveza— y aquí
+    se suman por familia. El porcentaje es sobre la venta del mes, que es como se mide de verdad: no importa que
+    alimentos hayan sido $180,000, importa que hayan sido el 30% de lo que vendiste.</p>`;
+
+  if(!famOrden.length){
+    h += `<p class="hint">Todavía no hay gastos capturados en ${nomMes}.</p>`;
+  } else {
+    h += `<div class="famg">${famOrden.map(([f,m])=>{
+      const d = PLAN_FAM[f] || PLAN_FAM.O;
+      return `<div class="famc" style="border-left-color:${d.c}">
+        <div class="l">${famChip(f)}${esc(d.n)}</div>
+        <div class="v">${money(m)}</div>
+        <div class="s">${vtMes?((m/vtMes)*100).toFixed(1)+'% de la venta':(gvMes?((m/gvMes)*100).toFixed(1)+'% del gasto':'')}</div>
+      </div>`;
+    }).join('')}</div>`;
+  }
+
+  /* Detalle por concepto: aquí vive el total del mes de cada renglón, que era
+     lo único que se perdía al partir la tabla por semanas. Y aquí se corrige
+     la letra, porque es donde se ve el efecto de corregirla. */
+  h += `<div class="d-h4" style="margin-top:18px">Concepto por concepto</div>
+    <div class="res-wrap"><table class="res" style="font-size:12.5px"><thead><tr>
+      <th style="text-align:left;min-width:190px">Concepto</th>
+      <th style="min-width:120px">Familia</th>
+      ${semTot.map(s=>`<th style="min-width:84px">SEM ${s.wk}</th>`).join('')}
+      <th style="min-width:98px">TOTAL MES</th>
+      <th style="min-width:64px">% vta</th>
+    </tr></thead><tbody>`;
+  PLAN_GV.forEach(cat=>{
+    const gc = g[cat] || {};
+    const mes = Object.values(gc).reduce((a,b)=>a+planN(b), 0);
+    if(!mes && !planTodos) return;
+    const f = planFamDe(cat);
+    h += `<tr><td style="text-align:left">${esc(cat)}</td>
+      <td><select data-planfam="${esc(cat)}" style="font-size:11.5px;padding:3px 5px;border:1px solid #DDD8CC;border-radius:6px;background:var(--card);font-family:inherit">
+        ${Object.entries(PLAN_FAM).map(([k,d])=>`<option value="${k}"${k===f?' selected':''}>${k} · ${esc(d.n)}</option>`).join('')}
+      </select></td>
+      ${semTot.map(s=>{
+        const w = s.dias.reduce((a,d)=>a+planN(gc[d]), 0);
+        return `<td>${w>0?money(w):''}</td>`;
+      }).join('')}
+      <td style="font-weight:800;background:${P_AZUL}22">${mes>0?money(mes):''}</td>
+      <td>${vtMes&&mes?((mes/vtMes)*100).toFixed(1)+'%':''}</td></tr>`;
+  });
+  h += `<tr style="font-weight:900"><td style="text-align:left;background:${P_NARA};color:#3A2100">TOTAL</td>
+    <td style="background:${P_NARA}"></td>
+    ${semTot.map(s=>`<td style="background:${P_NARA};color:#3A2100">${s.gasto>0?money(s.gasto):''}</td>`).join('')}
+    <td style="background:${P_NARA};color:#3A2100">${gvMes>0?money(gvMes):''}</td>
+    <td style="background:${P_NARA};color:#3A2100">${vtMes&&gvMes?((gvMes/vtMes)*100).toFixed(1)+'%':''}</td></tr>`;
+  h += `</tbody></table></div>`;
+
+  /* Semana por semana, con el porcentaje de gasto: es el número que dice si una
+     semana se salió de control, cosa que el peso solo no dice. */
+  h += `<div class="d-h4" style="margin-top:18px">Semana por semana</div>
+    <div class="res-wrap"><table class="res" style="font-size:12.5px"><thead><tr>
+      <th style="text-align:left">Semana</th><th>Venta</th><th>Gasto variable</th>
+      <th>% gasto</th><th>Diferencia</th></tr></thead><tbody>
+      ${semTot.map(s=>`<tr>
+        <td style="text-align:left;font-weight:700">SEMANA ${s.wk} <span class="hint">(${s.dias[0]}–${s.dias[s.dias.length-1]})</span></td>
+        <td style="background:${P_AZUL}22;font-weight:700">${s.venta>0?money(s.venta):''}</td>
+        <td>${s.gasto>0?money(s.gasto):''}</td>
+        <td style="font-weight:800">${s.venta?((s.gasto/s.venta)*100).toFixed(1)+'%':''}</td>
+        <td style="font-weight:700;color:${s.venta-s.gasto>=0?'#1B7A46':'#C0261F'}">${s.venta||s.gasto?money(s.venta-s.gasto):''}</td>
+      </tr>`).join('')}
+    </tbody></table></div></div>`;
+
+  h += `<div class="kpis" style="margin-top:14px">
+    <div class="kpi in"><div class="l">Venta total mes</div><div class="v">${money(vtMes)}</div></div>
+    <div class="kpi out-k"><div class="l">Gastos variables</div><div class="v">${money(gvMes)}</div></div>
+    <div class="kpi out-k"><div class="l">Gastos fijos</div><div class="v">${money(totalFijos)}</div></div>
+    <div class="kpi ${util>=0?'in':'out-k'}"><div class="l">Utilidad estimada</div><div class="v">${money(util)}</div></div>
+  </div>`;
+  return h;
+}
+
+function planViewF(){
+  const f=planEdit.gastos_fijos||{};
+  // Color by code
+  const CODE_COLOR={
+    'S':'#E3F0FF','I':'#FFE8E8','L':'#FFFBE6','DG':'#F3E8FF',
+    'R':'#FFF0E0','T':'#E8F5E9','V':'#F5F5F5','CB':'#EFEFEF',
+    'E':'#FFE8F5','RZ':'#E8F0FF','N':'#FFF3CD',''  :'#FAFAFA'
+  };
+  // Build from actual DB data (all keys in f), plus PLAN_GF as template order
+  const allCats=[...new Set([...PLAN_GF,...Object.keys(f)])];
+  let h=`<div class="panel"><p class="hint">Pagos fijos mensuales — actualiza el monto cuando llegue el recibo y marca ✔ cuando esté pagado.</p>
+    <table class="res" style="font-size:13px"><thead><tr>
+      <th style="text-align:left;min-width:200px">Concepto</th>
+      <th style="min-width:60px;text-align:center">Cód</th>
+      <th>Monto</th>
+      <th style="text-align:center">✔</th>
+    </tr></thead><tbody>`;
+  let total=0;
+  allCats.forEach(cat=>{
+    const row=f[cat]||{};
+    const monto=planN(row.monto);
+    const codigo=row.codigo||'';
+    const bg=CODE_COLOR[codigo]||CODE_COLOR[''];
+    total+=monto;
+    h+=`<tr style="background:${bg}">
+      <td style="font-weight:700;padding:5px 8px">${esc(cat)}</td>
+      <td style="text-align:center;font-weight:800;font-size:11px;color:#555;padding:5px">${esc(codigo)}</td>
+      <td style="padding:3px"><input type="text" inputmode="decimal" class="nospin" data-pf="${esc(cat)}" data-pff="monto"
+          value="${monto||''}" placeholder="0" style="width:120px;background:transparent"></td>
+      <td style="text-align:center;padding:3px"><input type="checkbox" data-pf="${esc(cat)}" data-pff="pagado"
+          ${row.pagado?'checked':''} style="width:22px;height:22px"></td></tr>`;
+  });
+  h+=`<tr style="background:var(--navy);color:#fff;font-weight:800">
+    <td colspan="2">TOTAL FIJOS</td><td>${money(total)}</td><td></td>
+  </tr></tbody></table></div>`;
+  return h;
+}
+
+function planViewB(){
+  const b=planEdit.banco||{};
+  const txs=b.txs||[{}];
+  let h=`<div class="panel"><p class="hint">Datos del estado de cuenta bancario para conciliación mensual.</p><div class="frm-row">`;
+  [['bal_ini','Balance inicial'],['depositos','Depósitos/ingresos'],['egresos','Egresos'],
+   ['transfers_na','Transfers no aplican'],['tc_na','TC no aplican'],['tc_si','TC sí aplican'],
+   ['pct_com','% Comisiones TC'],['bal_fin','Balance final']].forEach(([k,l])=>
+    h+=`<label>${l}<input type="text" inputmode="decimal" class="nospin" data-pb="${k}" value="${b[k]||''}" placeholder="0" style="min-height:44px"></label>`);
+  h+=`</div><div class="sec"><h2>Transacciones no reconocidas</h2></div>`;
+  txs.forEach((tx,ix)=>
+    h+=`<div class="frm-row-3" style="margin-bottom:8px;align-items:end">
+      <label style="font-size:13px">Fecha<input type="date" data-pbtx="${ix}" data-pbtxf="fecha" value="${tx.fecha||''}" style="min-height:44px;border:1.5px solid var(--line);border-radius:10px;padding:8px"></label>
+      <label style="font-size:13px">Concepto<input type="text" data-pbtx="${ix}" data-pbtxf="concepto" value="${esc(tx.concepto||'')}" placeholder="Concepto" style="min-height:44px;border:1.5px solid var(--line);border-radius:10px;padding:8px"></label>
+      <label style="font-size:13px">Monto<input type="text" inputmode="decimal" class="nospin" data-pbtx="${ix}" data-pbtxf="monto" value="${tx.monto||''}" placeholder="0" style="min-height:44px;border:1.5px solid var(--line);border-radius:10px;padding:8px"></label>
+    </div>`);
+  h+=`<button class="btn-quiet" id="planAddTx">+ Agregar fila</button></div>`;
+  return h;
+}
+
+/* Un solo escucha para toda la tabla, puesto una vez. Da tres cosas que es lo
+   que uno espera de una hoja de cálculo y aquí no había: saber dónde estás
+   parado, moverte con las flechas, y que al entrar a una casilla se seleccione
+   lo que ya tenía para escribir encima. */
+let _ptListo = false;
+/* Pasar de semana con el dedo. El detalle que lo hace usable: la tabla de
+   adentro también se desplaza de lado en el celular, así que el gesto solo
+   cambia de semana cuando esa tabla YA llegó a su orilla. Si no, se estaría
+   peleando con el desplazamiento de las columnas. */
+let _deslizListo = false;
+function instalaDeslizarSemana(){
+  if(_deslizListo) return;
+  _deslizListo = true;
+  const M = document.getElementById('main');
+  let x0=null, y0=null, sc=null, izq0=0, max0=0;
+
+  M.addEventListener('touchstart', e=>{
+    const blk = e.target.closest('#wkSlide');
+    if(!blk || e.touches.length!==1){ x0=null; return; }
+    sc = blk.querySelector('.wk-sc');
+    x0 = e.touches[0].clientX; y0 = e.touches[0].clientY;
+    izq0 = sc ? sc.scrollLeft : 0;
+    max0 = sc ? sc.scrollWidth - sc.clientWidth : 0;
+  }, {passive:true});
+
+  M.addEventListener('touchend', e=>{
+    if(x0===null) return;
+    const t = e.changedTouches[0];
+    const dx = t.clientX - x0, dy = t.clientY - y0;
+    x0 = null;
+    if(Math.abs(dx) < 70 || Math.abs(dx) < Math.abs(dy)*1.4) return;
+    /* Solo desde la orilla: si la tabla todavía tiene columnas que mostrar de
+       ese lado, el gesto le pertenece a ella. */
+    if(dx < 0 && max0 > 2 && izq0 < max0 - 2) return;   // faltan columnas a la derecha
+    if(dx > 0 && izq0 > 2) return;                       // faltan columnas a la izquierda
+    planSem = planSem + (dx < 0 ? 1 : -1);
+    render();
+  }, {passive:true});
+
+  /* Con teclado: las flechas dentro de una casilla mueven el cursor, así que
+     el cambio de semana va con Alt. */
+  M.addEventListener('keydown', e=>{
+    if(!e.altKey) return;
+    if(e.key==='ArrowRight'){ planSem++; render(); }
+    else if(e.key==='ArrowLeft'){ planSem--; render(); }
+  });
+}
+
+function instalaCuadricula(){
+  if(_ptListo) return;
+  _ptListo = true;
+  const M = document.getElementById('main');
+
+  const cruz = inp => {
+    M.querySelectorAll('.pt tr.pt-fila').forEach(t=>t.classList.remove('pt-fila'));
+    M.querySelectorAll('.pt td.pt-col').forEach(t=>t.classList.remove('pt-col'));
+    if(!inp) return;
+    const td = inp.closest('td'), tr = inp.closest('tr');
+    if(!td || !tr) return;
+    tr.classList.add('pt-fila');
+    const i = td.cellIndex;
+    tr.closest('table').querySelectorAll('tbody tr').forEach(f=>{
+      const c = f.cells[i]; if(c) c.classList.add('pt-col');
+    });
+  };
+
+  M.addEventListener('focusin', e=>{
+    if(!e.target.matches('.pt input')) return;
+    cruz(e.target);
+    /* Seleccionar el contenido al entrar: así se escribe encima en vez de
+       tener que borrar primero, que es como se captura de verdad. */
+    if(e.target.type!=='checkbox') setTimeout(()=>{ try{ e.target.select(); }catch(_){} }, 0);
+  });
+  M.addEventListener('focusout', e=>{ if(e.target.matches('.pt input')) setTimeout(()=>{
+    if(!M.querySelector('.pt input:focus')) cruz(null); }, 0); });
+
+  M.addEventListener('keydown', e=>{
+    const inp = e.target;
+    if(!inp.matches('.pt input')) return;
+    const td = inp.closest('td'), tr = inp.closest('tr');
+    if(!td || !tr) return;
+    const col = td.cellIndex, filas = [...tr.closest('tbody').rows];
+    const iF = filas.indexOf(tr);
+    const salta = (df, dc) => {
+      for(let k=1; k<=40; k++){
+        const f = filas[iF + df*k];
+        if(df && !f) return null;
+        const fila = df ? f : tr;
+        const c = fila.cells[col + (df?0:dc*k)];
+        const x = c && c.querySelector('input');
+        if(x) return x;
+        if(!df && !c) return null;
+      }
+      return null;
+    };
+    let destino = null;
+    if(e.key==='ArrowDown' || e.key==='Enter') destino = salta(1,0);
+    else if(e.key==='ArrowUp') destino = salta(-1,0);
+    else if(e.key==='ArrowRight' && inp.selectionStart===inp.value.length) destino = salta(0,1);
+    else if(e.key==='ArrowLeft' && inp.selectionStart===0) destino = salta(0,-1);
+    else return;
+    if(destino){ e.preventDefault(); destino.focus(); }
+  });
+}
+
+async function wirePlan(){
+  instalaCuadricula();
+  instalaFormato();
+  setTimeout(fmtPinta, 0);
+  document.querySelectorAll('[data-planm]').forEach(b=>b.addEventListener('click',()=>{
+    planMonth=b.dataset.planm;planData=null;planEdit={};refreshPlan();
+  }));
+  document.querySelectorAll('[data-plantab]').forEach(b=>b.addEventListener('click',()=>{
+    planTab=b.dataset.plantab;render();
+  }));
+  document.querySelectorAll('[data-planall]').forEach(b=>b.addEventListener('click',()=>{
+    planTodos=b.dataset.planall==='1';render();
+  }));
+  document.querySelectorAll('[data-plansem]').forEach(b=>b.addEventListener('click',()=>{
+    planSem=Number(b.dataset.plansem);render();
+  }));
+  instalaDeslizarSemana();
+  if(planTab==='conc' && typeof wireConc==='function') wireConc();
+  if(planTab==='tarj' && typeof wireTarj==='function') wireTarj();
+  if(planTab==='main' && typeof wirePv==='function'){
+    const ws = planWeeks(planMonth);
+    const i = Math.max(0, Math.min(ws.length-1, planSem===null||planSem===undefined ? planSemHoy(ws) : planSem));
+    wirePv(ws[i]);
+  }
+  $('#planAdd')?.addEventListener('change',e=>{
+    const c=e.target.value; if(!c) return;
+    if(!planExtra.includes(c))planExtra.push(c);
+    render();
+  });
+  /* Corregir la letra de un concepto se guarda al momento en el mes y también
+     en el navegador, para que el mes que entra ya venga corregido. */
+  document.querySelectorAll('[data-planfam]').forEach(s=>s.addEventListener('change',()=>{
+    planFamSet(s.dataset.planfam, s.value);
+    render();
+  }));
+  document.querySelectorAll('[data-pv]').forEach(inp=>inp.addEventListener('change',()=>{
+    const d=inp.dataset.pv,f=inp.dataset.pvf;
+    if(!planEdit.ventas[d])planEdit.ventas[d]={};
+    const raw=inp.value.trim();
+    planEdit.ventas[d][f]=raw?numMX(raw):'';
+    render();
+  }));
+  document.querySelectorAll('[data-pg]').forEach(inp=>inp.addEventListener('change',()=>{
+    const c=inp.dataset.pg,d=inp.dataset.pgd;
+    if(!planEdit.gastos_var[c])planEdit.gastos_var[c]={};
+    const raw=inp.value.trim();
+    planEdit.gastos_var[c][d]=raw?numMX(raw):'';
+    render();
+  }));
+  document.querySelectorAll('[data-pf]').forEach(inp=>inp.addEventListener('change',()=>{
+    const c=inp.dataset.pf,f=inp.dataset.pff;
+    if(!planEdit.gastos_fijos[c])planEdit.gastos_fijos[c]={};
+    if(inp.type==='checkbox')planEdit.gastos_fijos[c][f]=inp.checked;
+    else{const raw=inp.value.trim();planEdit.gastos_fijos[c][f]=raw?numMX(raw):'';}
+    render();
+  }));
+  document.querySelectorAll('[data-pb]').forEach(inp=>inp.addEventListener('change',()=>{
+    const raw=inp.value.trim();planEdit.banco[inp.dataset.pb]=raw?numMX(raw):'';
+  }));
+  document.querySelectorAll('[data-pbtx]').forEach(inp=>inp.addEventListener('change',()=>{
+    const ix=Number(inp.dataset.pbtx),f=inp.dataset.pbtxf;
+    if(!planEdit.banco.txs)planEdit.banco.txs=[];
+    while(planEdit.banco.txs.length<=ix)planEdit.banco.txs.push({});
+    planEdit.banco.txs[ix][f]=inp.value;
+  }));
+  document.getElementById('planAddTx')?.addEventListener('click',()=>{
+    if(!planEdit.banco.txs)planEdit.banco.txs=[];
+    planEdit.banco.txs.push({});render();
+  });
+  document.getElementById('planSave')?.addEventListener('click',async()=>{
+    const btn=document.getElementById('planSave');
+    if(btn){btn.disabled=true;btn.textContent='Guardando…';}
+    try{
+      await sb.from('planilla_months').upsert({
+        location_id:finLoc,year_month:planMonth,
+        ventas:planEdit.ventas,gastos_var:planEdit.gastos_var,
+        gastos_fijos:planEdit.gastos_fijos,banco:planEdit.banco,
+        formato:planEdit.formato||{},
+        created_by:user.name,updated_at:new Date().toISOString()
+      },{onConflict:'location_id,year_month'});
+      planData=null;toast('Planilla guardada ✓');refreshPlan();
+    }catch(e){
+      toast('Error al guardar');
+      if(btn){btn.disabled=false;btn.textContent='💾 Guardar';}
+    }
+  });
+  document.getElementById('planExport')?.addEventListener('click',exportPlanExcel);
+}
+
+async function exportPlanExcel(){
+  await loadXLSX();
+  if(typeof XLSX==='undefined'){toast('Error cargando librería Excel');return;}
+  const [y,m]=planMonth.split('-').map(Number);
+  const weeks=planWeeks(planMonth);
+  const v=planEdit.ventas||{},g=planEdit.gastos_var||{},f=planEdit.gastos_fijos||{},b=planEdit.banco||{};
+  const mn=new Date(y,m-1,1).toLocaleString('es-MX',{month:'long'}).toUpperCase()+' SC '+y;
+  const rows=[[mn],[],['CONCEPTO',...weeks.flatMap(w=>[...w.days.map(d=>planDowShort(planMonth,d)+d),`TOT S${w.wk}`]),'TOTAL MES']];
+  const addR=(lbl,key,src)=>{
+    let mes=0;const row=[lbl];
+    weeks.forEach(w=>{let wk=0;w.days.forEach(d=>{const val=planN((src[d]||{})[key]);row.push(val||null);wk+=val;mes+=val;});row.push(wk||null);});
+    row.push(mes||null);rows.push(row);return mes;
+  };
+  addR('EFECTIVO','ef',v);addR('TARJETA BANCARIA CORTE','tj',v);
+  /* La tarjeta real sale del voucher de la terminal que se capturó en el
+     corte; si alguien escribió algo a mano en la planilla, eso manda. Abajo,
+     el renglón que se pidió: cuánto cobró la terminal contra lo capturado. */
+  const vouOkX = plaVouClave === `${finLoc}|${planMonth}`;
+  const realDe = d => {
+    const manual = planN((v[d]||{}).tr);
+    if(manual > 0) return manual;
+    return (vouOkX && plaVou[d] != null) ? Number(plaVou[d]) : null;
+  };
+  {
+    let mes=0; const row=['TARJETA BANCARIA REAL (VOUCHER TERMINAL)'];
+    weeks.forEach(w=>{let wk=0;w.days.forEach(d=>{const val=realDe(d);row.push(val==null?null:val);wk+=val||0;mes+=val||0;});row.push(wk||null);});
+    row.push(mes||null); rows.push(row);
+    let mesD=0; const rowD=['DIFERENCIA (REAL − CORTE)'];
+    weeks.forEach(w=>{let wk=0;w.days.forEach(d=>{
+      const r0=realDe(d), c0=planN((v[d]||{}).tj);
+      if(r0==null || !c0){ rowD.push(null); return; }
+      const x=Math.round((r0-c0)*100)/100; rowD.push(x||null); wk+=x; mesD+=x;});
+      rowD.push(wk||null);});
+    rowD.push(mesD||null); rows.push(rowD);
+  }
+  addR('RAPPI','ra',v);
+  const totRow=['VENTA TOTAL'];let vtM=0;
+  weeks.forEach(w=>{let wk=0;w.days.forEach(d=>{const t=planN((v[d]||{}).ef)+planN((v[d]||{}).tj)+planN((v[d]||{}).ra);totRow.push(t||null);wk+=t;vtM+=t;});totRow.push(wk||null);});
+  totRow.push(vtM||null);rows.push(totRow);rows.push([]);
+  PLAN_GV.forEach(c=>{const gc=g[c]||{};let mes=0;const row=[c];
+    weeks.forEach(w=>{let wk=0;w.days.forEach(d=>{const val=planN(gc[d]);row.push(val||null);wk+=val;mes+=val;});row.push(wk||null);});
+    row.push(mes||null);rows.push(row);});
+  rows.push([],['GASTOS FIJOS','MONTO','PAGADO']);
+  PLAN_GF.forEach(c=>{const r=f[c]||{};rows.push([c,planN(r.monto)||null,r.pagado?'✓':'']);});
+  const wb2=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb2,XLSX.utils.aoa_to_sheet(rows),mn.slice(0,31));
+  XLSX.writeFile(wb2,`Planilla_${planMonth}_SC.xlsx`);
+  toast('Excel descargado ✓');
+}
+
+</script>
+<script src="/js/app-mant-v2.js" defer></script>
+<script src="/js/app-rep-v2.js?v=10" defer></script>
+<script src="/js/app-inv-v2.js?v=4" defer></script>
+<script src="/js/app-cor-v2.js?v=19" defer></script>
+<script src="/js/app-cot-v2.js?v=1" defer></script>
+<script src="/js/app-prv-v2.js?v=12" defer></script>
+<script src="/js/app-hprod-v2.js?v=2" defer></script>
+<script src="/js/app-dash-v2.js?v=6" defer></script>
+<script src="/js/app-vivo-v2.js?v=3" defer></script>
+<script src="/js/app-ctas-v2.js?v=1" defer></script>
+<script src="/js/app-graf-v2.js" defer></script>
+<script src="/js/app-fmt-v2.js" defer></script>
+<script src="/js/app-hor-v2.js" defer></script>
+<script src="/js/app-ped-v2.js" defer></script>
+<script src="/js/app-ban-v2.js" defer></script>
+<script src="/js/app-conc-v2.js" defer></script>
+<script src="/js/app-pvta-v2.js" defer></script>
+<!-- El ?v= no es decoración: sin él el navegador se queda con la copia vieja
+     y uno cree que desplegó algo que el usuario nunca vio. Súbelo al cambiar. -->
+<script src="/js/app-tarj-v2.js?v=11" defer></script>
+<script>
+["touchstart","mousedown","keydown","scroll"].forEach(ev=>
+  document.addEventListener(ev,()=>{if(typeof resetLockTimer==="function"&&user)resetLockTimer();},{passive:true}));
+</script>
+<script>
+// Tap any number input → select all so no manual clearing needed
+document.addEventListener('focusin', e=>{
+  const t=e.target;
+  if(t.matches('input.nospin,input[type="number"]')){
+    requestAnimationFrame(()=>t.select());
+  }
+}, true);
+</script>
+<style id="boyes-scroll-tablas">
+/* Tablas largas con scroll propio y encabezado fijo */
+.res-wrap:has(> table.inv-tbl){
+  max-height:min(62vh,600px);
+  overflow:auto;
+  -webkit-overflow-scrolling:touch;
+  overscroll-behavior:contain;
+  border-radius:12px;
+  scrollbar-width:thin;
+}
+.res-wrap:has(> table.inv-tbl) > table.inv-tbl thead th{
+  position:sticky; top:0; z-index:5;
+  background:var(--navy,#16233d); color:#fff;
+  box-shadow:0 2px 0 rgba(0,0,0,.18);
+}
+/* pista visual de que hay más contenido */
+.res-wrap:has(> table.inv-tbl)::-webkit-scrollbar{width:10px;height:10px}
+.res-wrap:has(> table.inv-tbl)::-webkit-scrollbar-thumb{
+  background:rgba(22,35,61,.35); border-radius:8px; border:2px solid transparent; background-clip:content-box;
+}
+.res-wrap:has(> table.inv-tbl)::-webkit-scrollbar-thumb:hover{background:rgba(22,35,61,.55);background-clip:content-box}
+@media(max-width:640px){ .res-wrap:has(> table.inv-tbl){max-height:70vh} }
+
+/* ================= TABLERO DE INICIO ================= */
+.d-head{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:16px}
+.d-eyebrow{font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-2);font-weight:700}
+.d-titulo{margin:2px 0 0;font-size:clamp(20px,3.4vw,26px);font-weight:800;color:var(--ink);letter-spacing:-.01em}
+.d-switch{flex:none}
+.d-tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin-bottom:14px}
+.d-tile{background:var(--card);border-radius:14px;box-shadow:var(--shadow);padding:14px 16px;min-height:104px;
+        display:flex;flex-direction:column;gap:2px}
+.d-lbl{font-size:11.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-2);font-weight:700}
+.d-val{font-size:clamp(22px,3.4vw,28px);font-weight:800;color:var(--ink);line-height:1.15;
+       font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+.d-val-pend{color:#C9C2B2}
+.d-sub{font-size:13px;font-weight:700}
+.d-pie{font-size:11.5px;color:var(--ink-2);margin-top:auto;line-height:1.35}
+.d-delta{font-weight:800;font-variant-numeric:tabular-nums}
+.d-delta.d-nulo{color:var(--ink-2);font-weight:600;font-size:12px}
+/* La tarjeta que aún no se puede llenar: se ve distinta a propósito, para que
+   nunca se confunda un hueco con un cero. */
+.d-pend{border:1.5px dashed #D8CFB8;background:#FDFBF5;box-shadow:none}
+
+.d-h3{font-weight:800;font-size:15px;margin-bottom:10px;color:var(--ink)}
+.d-h4{font-weight:700;font-size:12.5px;letter-spacing:.06em;text-transform:uppercase;
+      color:var(--ink-2);margin-bottom:8px}
+.d-cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px}
+.d-cols3{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:22px}
+
+.d-locs{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px}
+.d-loc{border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+.d-loc-n{font-weight:800;font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-2)}
+.d-loc-v{font-size:26px;font-weight:800;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.d-loc-f{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:12px;color:var(--ink-2);margin-top:6px}
+.d-spark{display:block;width:100%;height:54px;margin:8px 0 2px}
+
+.d-bars{display:flex;flex-direction:column;gap:7px}
+/* Dos renglones en vez de cuatro columnas: en una columna angosta, "PIZZA
+   CARNIVORA" se volvía "PIZZ..." y la barra dejaba de significar algo. Con el
+   nombre arriba y la barra abajo, cabe entero a cualquier ancho. */
+.d-bar{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:3px 10px;font-size:13px}
+.d-bar-n{grid-column:1;grid-row:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}
+.d-bar-v{grid-column:2;grid-row:1;font-weight:800;font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
+.d-bar-t{grid-column:1;grid-row:2;align-self:center;height:8px;border-radius:5px;background:#EBE7DC;overflow:hidden}
+.d-bar-f{display:block;height:100%;border-radius:5px}
+.d-bar-x{grid-column:2;grid-row:2;font-size:11.5px;color:var(--ink-2);white-space:nowrap;text-align:right}
+.d-bars{gap:11px}
+.d-switch button{white-space:nowrap}
+@media(max-width:560px){
+  .d-bar{font-size:12.5px}
+  .d-head{align-items:flex-start}
+  .d-switch{width:100%}
+}
+
+.d-per .switch button{white-space:nowrap}
+.d-per{display:flex;flex-wrap:wrap;align-items:center;gap:10px 16px;margin:0 0 14px}
+.d-per-r{display:flex;flex-wrap:wrap;align-items:center;gap:8px 14px;font-size:13px}
+.d-per-r label{display:flex;align-items:center;gap:7px;font-size:13px;font-weight:600;
+               color:var(--ink-2);margin:0;grid-template-columns:none}
+.d-per-r select{min-height:38px;border:1.5px solid var(--line);border-radius:9px;
+                padding:4px 10px;background:var(--card);font-size:13.5px;font-weight:700;color:var(--ink)}
+.d-per .hint{flex:1 1 260px;min-width:0}
+@media(max-width:560px){ .d-per-r{width:100%} .d-per-r label{width:100%} .d-per-r select{flex:1} }
+
+/* ================= GRÁFICAS DE LA PLANILLA ================= */
+.g-kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:14px}
+.g-kpi{background:var(--card);border-radius:14px;box-shadow:var(--shadow);padding:14px 16px;
+       display:flex;flex-direction:column;gap:3px;min-height:98px}
+.g-kpi-l{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-2);font-weight:700}
+.g-kpi-v{font-size:clamp(21px,3.2vw,27px);font-weight:800;letter-spacing:-.025em;line-height:1.1;
+         font-variant-numeric:tabular-nums}
+.g-kpi-p{font-size:12px;color:var(--ink-2);margin-top:auto;line-height:1.35}
+.g-t{font-weight:800;font-size:15px;margin-bottom:8px}
+.g-cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:12px}
+
+/* El SVG se desborda a lo ancho DENTRO de su caja: el cuerpo de la página
+   nunca debe correrse de lado por una gráfica de 31 barras. */
+.g-scroll{overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;padding-bottom:4px}
+.g-svg{display:block;height:auto;min-width:100%}
+.g-bar rect{transition:opacity .12s}
+.g-bar:hover rect{opacity:.78}
+
+.g-hb{display:flex;flex-direction:column;gap:10px}
+.g-hb-r{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:3px 10px;font-size:13px}
+.g-hb-n{grid-column:1;grid-row:1;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.g-hb-v{grid-column:2;grid-row:1;font-weight:800;font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
+.g-hb-t{grid-column:1;grid-row:2;align-self:center;height:9px;border-radius:5px;background:#EBE7DC;overflow:hidden}
+.g-hb-f{display:block;height:100%;border-radius:5px}
+.g-hb-p{grid-column:2;grid-row:2;font-size:11.5px;color:var(--ink-2);text-align:right;font-variant-numeric:tabular-nums}
+
+/* Dos segmentos con 2px de aire entre ellos: pegados se leen como uno solo. */
+.g-stack{display:flex;height:30px;border-radius:8px;overflow:hidden;gap:2px;background:var(--bg)}
+.g-stack span{display:block;height:100%}
+.g-leyenda{display:flex;flex-wrap:wrap;gap:6px 20px;margin-top:10px;font-size:13px;color:var(--ink-2)}
+.g-leyenda i{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:7px;vertical-align:-1px}
+.g-leyenda b{color:var(--ink);font-variant-numeric:tabular-nums}
+
+@media(max-width:560px){ .g-cols{grid-template-columns:1fr} }
+
+/* ================= BARRA DE FORMATO ================= */
+.fmt-bar{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin:0 0 10px;
+         background:var(--card);border:1px solid var(--line);border-radius:12px;padding:7px 10px;
+         box-shadow:var(--shadow)}
+.fmt-g{display:flex;align-items:center;gap:2px;padding-right:10px;border-right:1px solid var(--line)}
+.fmt-g:last-of-type{border-right:0}
+.fmt-b{min-width:34px;min-height:34px;border-radius:8px;background:transparent;color:var(--ink);
+       font-size:15px;display:grid;place-items:center;line-height:1}
+.fmt-b:hover{background:#EFECE4}
+.fmt-b.fmt-on{background:var(--navy);color:#fff}
+.fmt-z{font-size:12.5px;font-weight:800;min-width:44px;text-align:center;font-variant-numeric:tabular-nums}
+.fmt-cubo{width:17px;height:17px;border-radius:4px;border:1.5px solid #9AA3B0;display:block}
+.fmt-pop{position:relative}
+.fmt-menu{display:none;position:absolute;top:40px;left:0;z-index:40;background:var(--card);
+          border:1px solid var(--line);border-radius:12px;box-shadow:0 10px 28px rgba(19,35,59,.18);
+          padding:9px;grid-template-columns:repeat(4,32px);gap:7px}
+.fmt-menu.open{display:grid}
+.fmt-sw{width:32px;height:32px;border-radius:7px;border:1.5px solid rgba(19,35,59,.16)}
+.fmt-sw:hover{transform:scale(1.08)}
+.fmt-sw.fmt-x{background:
+  linear-gradient(45deg,transparent 45%,#D43E3E 45%,#D43E3E 55%,transparent 55%),#fff}
+.fmt-info{font-size:12px;color:var(--ink-2);margin-left:auto}
+.fmt-info b{color:var(--ink)}
+/* La casilla seleccionada se marca aunque no tenga el cursor dentro. */
+.pt td.fmt-sel{box-shadow:inset 0 0 0 2px var(--navy)}
+@media(max-width:560px){ .fmt-info{width:100%;margin-left:0;order:9} }
+</style><style id="boyes-scroll-tablas">
+/* Tablas largas con scroll propio y encabezado fijo */
+.res-wrap:has(> table.inv-tbl){
+  max-height:min(62vh,600px);
+  overflow:auto;
+  -webkit-overflow-scrolling:touch;
+  overscroll-behavior:contain;
+  border-radius:12px;
+  scrollbar-width:thin;
+}
+.res-wrap:has(> table.inv-tbl) > table.inv-tbl thead th{
+  position:sticky; top:0; z-index:5;
+  background:var(--navy,#16233d); color:#fff;
+  box-shadow:0 2px 0 rgba(0,0,0,.18);
+}
+/* pista visual de que hay más contenido */
+.res-wrap:has(> table.inv-tbl)::-webkit-scrollbar{width:10px;height:10px}
+.res-wrap:has(> table.inv-tbl)::-webkit-scrollbar-thumb{
+  background:rgba(22,35,61,.35); border-radius:8px; border:2px solid transparent; background-clip:content-box;
+}
+.res-wrap:has(> table.inv-tbl)::-webkit-scrollbar-thumb:hover{background:rgba(22,35,61,.55);background-clip:content-box}
+@media(max-width:640px){ .res-wrap:has(> table.inv-tbl){max-height:70vh} }
+</style></body>
+</html>
