@@ -461,7 +461,11 @@ function corView(){
           ? `\u2014 <b>sin inventario del ${esc(sem)}</b>, no se descont\u00f3 merma`
           : `\u2212 ${money(mA)} de merma (faltantes del ${esc(sem)})`}${
           aPagar<0 ? ` \u00b7 <b style="color:var(--red)">la merma supera la propina: quedan ${money(-aPagar)} sin cubrir</b>`
-                   : ` \u00b7 se paga del efectivo de esta semana`}</div></div>`;
+                   : ` \u00b7 se paga del efectivo de esta semana`}</div></div>
+      <div class="kpi" style="border-top:4px solid var(--navy);background:#EEF2F8">
+        <div class="l"><b>Efectivo a entregar</b></div>
+        <div class="v" style="color:var(--navy)">${efAdj===null?'\u2014':money(Math.round((efAdj-Math.max(0,aPagar))*100)/100)}</div>
+        <div class="hint">${efAdj===null?'falta contar el efectivo':`efectivo contado ${money(efAdj)} \u2212 ${money(Math.max(0,aPagar))} de propina al personal`}</div></div>`;
     })()}
     <div class="kpi" style="border-top:4px solid ${difNeta===null?'var(--line)':(Math.abs(difNeta)<=COR_TOLERANCIA?'var(--ok)':col(difNeta))}">
       <div class="l">¿Falta dinero?${difNeta===null?'':(Math.abs(difNeta)<=COR_TOLERANCIA?' <b style="color:var(--ok)">CUADRA</b>':sello(difNeta))}</div>
@@ -668,15 +672,21 @@ async function corGeneraPDF(){
     doc.setFont('helvetica','bold').setFontSize(8.5).setTextColor(...SUAVE);
     doc.text('EL RESULTADO DE LA SEMANA', M + 12, yRes + 15);
 
-    const anchoCol = (W - 2*M - 24) / 3;
-    const celda = (i, rot, valor, color, sello) => {
+    /* Cuatro números: los tres de si cuadra, y el que se cuenta en la mano.
+       El efectivo a entregar es lo que queda del efectivo contado después de
+       pagarle al personal su propina (neta de retención y merma). Antes solo
+       aparecía en letra chica abajo a la derecha. */
+    const anchoCol = (W - 2*M - 24) / 4;
+    const aPagarRes = Math.max(0, Math.round((N.propPagar - (corData._mermaAnt || 0)) * 100) / 100);
+    const efEntregar = N.efAdj === null ? null : Math.round((N.efAdj - aPagarRes) * 100) / 100;
+    const celda = (i, rot, valor, color, sello, colorRot) => {
       const x = M + 12 + i * anchoCol;
-      doc.setFont('helvetica','normal').setFontSize(7.5).setTextColor(...SUAVE);
+      doc.setFont('helvetica', colorRot ? 'bold' : 'normal').setFontSize(7.5).setTextColor(...(colorRot || SUAVE));
       doc.text(rot, x, yRes + 33);
       doc.setFont('helvetica','bold').setFontSize(17).setTextColor(...color);
       doc.text(valor, x, yRes + 55);
       if(sello){
-        doc.setFont('helvetica','bold').setFontSize(9).setTextColor(...color);
+        doc.setFont('helvetica','bold').setFontSize(8).setTextColor(...color);
         doc.text(sello, x, yRes + 68);
       }
     };
@@ -684,10 +694,18 @@ async function corGeneraPDF(){
        por día. Decir "contado día por día" en esos sería mentir sobre de
        dónde salió el número. */
     celda(0, 'ENTRÓ EN TOTAL', pesos(entregado), TINTA,
-          N.efAdj === null ? 'falta contar el efectivo' : 'efectivo + tarjeta + transferencias');
+          N.efAdj === null ? 'falta contar el efectivo' : 'efectivo + tarjeta + transf.');
     celda(1, 'DEBÍA ENTRAR', pesos(debia), TINTA, 'según el corte');
     celda(2, 'DIFERENCIA', d === null ? '-' : pesos(d), cOK,
           d === null ? '' : (ok ? 'CUADRA' : veredicto(d)));
+    /* El cuarto va en su propio recuadro azul: es el que se cuenta en la caja. */
+    {
+      const x0 = M + 12 + 3 * anchoCol - 8;
+      doc.setFillColor(...NAVY);
+      doc.rect(x0, yRes + 22, (W - M) - x0 - 8, 52, 'F');
+    }
+    celda(3, 'EFECTIVO A ENTREGAR', efEntregar === null ? '-' : pesos(efEntregar), [255,255,255],
+          efEntregar === null ? 'falta contar el efectivo' : 'contado - propina personal', [255,255,255]);
 
     /* De dónde sale el "debía entregar", con números, no con palabras. */
     doc.setFont('helvetica','normal').setFontSize(6.8).setTextColor(...SUAVE);
@@ -901,7 +919,7 @@ async function corGeneraPDF(){
       `(${pesos(N.propPagar)}). No hay propina que entregar esta semana y quedan ` +
       `${pesos(-aPagar)} sin cubrir. Qué se hace con ese saldo lo decide la administración.`);
   } else {
-    const ef = N.efTotal;
+    const ef = N.efAdj;
     yD = chico(X2, COL, yD, ef === null
       ? 'Se paga del efectivo que entró esta semana.'
       : `Se paga del efectivo que entró esta semana (${pesos(ef)}); quedan ${pesos(ef - aPagar)} ` +
