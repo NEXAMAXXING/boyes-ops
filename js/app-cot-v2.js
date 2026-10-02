@@ -21,6 +21,8 @@ let cotMenuErr = null;
 let cotBusca = '';
 let cotCat   = '';
 let cotCargando = false;
+let cotMenuSuc = null;      // de qué sucursal es el menú cargado
+let cotModPara = null;      // índice del renglón al que se le está agregando un cambio
 
 const COT_SUC = {
   guaymas: {
@@ -54,19 +56,56 @@ async function cotRefresca(){
   cotCargando = false; render();
 }
 
+/* El catálogo sale del punto de venta (Soft Restaurant) de la sucursal de
+   la cotización: es lo que cobra la caja hoy, con su precio. Si Soft no
+   contesta, se cae al menú del sitio web para no dejar el buscador vacío. */
+const COT_ESPECIAL = /DAY|PROMO|HAPPY|MAQUILA|^BOYES$|BONELESS LAB|VICIO|DOMICILIO|VINOFEST|EVENTO|FRANQUICIA/i;
 async function cotJalaMenu(){
-  if(cotMenu) return cotMenu;
+  const suc = cotEdit?.sucursal || 'guaymas';
+  if(cotMenu && cotMenuSuc === suc) return cotMenu;
+  cotMenu = null; cotMenuErr = null; render();
   try{
-    const r = await fetch('/api/menu-web', {cache:'no-store'});
+    const r = await fetch(`/api/soft-ventas?modo=productos&sucursal=${suc}&token=${encodeURIComponent(user.token)}`,
+                          {cache:'no-store'});
     const j = await r.json();
     if(j.error) throw new Error(j.error);
-    cotMenu = j; cotMenuErr = null;
+    const prods = (j.productos||[])
+      .filter(p => p.activo !== false && p.nombre)
+      .map(p => ({ id: 'soft:'+(p.id||p.clave||p.nombre), nombre: String(p.nombre).trim(),
+                   categoria: String(p.categoria||'').trim(), cat: String(p.categoria||'').trim(),
+                   precio: p.precio === null || p.precio === undefined ? null : Number(p.precio) }));
+    /* Los grupos de promoción o temporada van al final: el precio que se
+       cotiza es el del menú normal, no el de un 2x1 de jueves. */
+    prods.forEach(p => { p.especial = COT_ESPECIAL.test(p.cat); });
+    prods.sort((a,b) => (a.especial - b.especial) || a.cat.localeCompare(b.cat) || a.nombre.localeCompare(b.nombre));
+    const cats = [...new Set(prods.map(p=>p.cat).filter(Boolean))]
+      .map(c => ({ id:c, nombre: COT_ESPECIAL.test(c) ? c + ' (promo / especial)' : c }));
+    cotMenu = { total: prods.length, productos: prods, categorias: cats, fuente: 'Soft Restaurant' };
   }catch(e){
-    cotMenu = null;
-    cotMenuErr = e.message || 'no se pudo leer el menú del sitio';
+    try{
+      const r = await fetch('/api/menu-web', {cache:'no-store'});
+      const j = await r.json();
+      if(j.error) throw new Error(j.error);
+      cotMenu = { ...j, fuente: 'boyesburger.com' };
+      cotMenuErr = null;
+    }catch(e2){
+      cotMenu = null;
+      cotMenuErr = (e.message || 'el punto de venta no contestó');
+    }
   }
+  cotMenuSuc = suc;
   render();
   return cotMenu;
+}
+
+/* Búsqueda sin acentos ni mayúsculas, palabra por palabra: "classic"
+   encuentra CLASSIC BURGER y "papas saz" encuentra CAMBIO A PAPAS SAZONADAS. */
+const cotNorm = t => String(t||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();
+function cotCoincide(p, q){
+  const palabras = cotNorm(q).split(/\s+/).filter(Boolean);
+  if(!palabras.length) return true;
+  const n = cotNorm(p.nombre + ' ' + (p.categoria||''));
+  return palabras.every(w => n.includes(w));
 }
 
 /* ---------- cuentas ----------
@@ -148,12 +187,18 @@ function cotEditorView(){
   /* ---- el buscador de productos ---- */
   h += `<div class="panel">
     <div class="hint" style="font-weight:800;font-size:15px;margin-bottom:4px">2. Agregar del menú</div>
-    <p class="hint" style="margin:0 0 10px">Precios en vivo del menú en línea.
-      ${cotMenu ? `<b>${cotMenu.total}</b> productos · leído del sitio` : ''}</p>`;
+    <p class="hint" style="margin:0 0 10px">Precios en vivo del punto de venta de la sucursal.
+      ${cotMenu ? `<b>${cotMenu.total}</b> productos · ${esc(cotMenu.fuente||'')}` : ''}</p>`;
+  if(cotModPara !== null && c.renglones[cotModPara]){
+    h += `<div style="padding:10px 12px;border-radius:10px;background:#E8EEF7;border-left:4px solid var(--navy);margin-bottom:8px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <div style="flex:1;min-width:180px">Agregando un <b>cambio o extra</b> a:
+        <b>${esc(c.renglones[cotModPara].nombre)}</b>. Busca el cambio (ej. «sazonadas») y dale Agregar.</div>
+      <button class="btn-quiet" id="cotModCancel">Cancelar</button></div>`;
+  }
 
   if(cotMenuErr){
     h += `<div style="padding:10px 12px;border-radius:10px;background:#FFF3D6;border-left:4px solid var(--warn)">
-      <b>No pude leer el menú del sitio.</b>
+      <b>No pude leer el catálogo del punto de venta.</b>
       <div class="hint" style="margin-top:4px">${esc(cotMenuErr)} — puedes seguir capturando
       renglones a mano abajo.</div>
       <button class="btn-quiet" id="cotMenuRetry" style="margin-top:8px">Reintentar</button></div>`;
@@ -169,10 +214,8 @@ function cotEditorView(){
         ${cats.map(x=>`<option value="${esc(x.id)}" ${cotCat===x.id?'selected':''}>${esc(x.emoji||'')} ${esc(x.nombre)}</option>`).join('')}
       </select></div>`;
 
-    const q = cotBusca.trim().toLowerCase();
     const lista = (cotMenu.productos||[]).filter(p =>
-      (!cotCat || p.cat === cotCat) &&
-      (!q || p.nombre.toLowerCase().includes(q)));
+      (!cotCat || p.cat === cotCat) && cotCoincide(p, cotBusca));
 
     h += `<div style="max-height:260px;overflow:auto;border:1px solid var(--line);border-radius:10px">`;
     if(!lista.length) h += `<p class="hint" style="padding:14px">Nada con ese nombre.</p>`;
@@ -180,10 +223,10 @@ function cotEditorView(){
       h += `<div style="display:flex;align-items:center;gap:10px;padding:8px 11px;border-bottom:1px solid var(--line)">
         <div style="flex:1;min-width:0">
           <div style="font-weight:700;font-size:14px">${esc(p.nombre)}</div>
-          <div class="hint" style="font-size:11.5px">${esc(p.categoria||'')}</div>
+          <div class="hint" style="font-size:11.5px">${esc(p.categoria||'')}${p.especial?' · <b style="color:var(--warn)">promo / especial</b>':''}</div>
         </div>
-        <div style="font-weight:800;font-variant-numeric:tabular-nums">${money(p.precio)}</div>
-        <button class="rowbtn" data-cotadd="${esc(p.id)}">Agregar</button>
+        <div style="font-weight:800;font-variant-numeric:tabular-nums">${p.precio===null?'<span class="hint">sin precio</span>':money(p.precio)}</div>
+        <button class="rowbtn" data-cotadd="${esc(p.id)}">${cotModPara!==null?'+ Al renglón':'Agregar'}</button>
       </div>`;
     }
     if(lista.length > 120)
@@ -208,10 +251,15 @@ function cotEditorView(){
       const unit = cotUnit(r, N.factor);
       h += `<tr>
         <td style="text-align:left"><input type="text" data-cotr="${ix}" data-cotf="nombre"
-          value="${esc(r.nombre||'')}" style="width:100%;min-height:38px"></td>
+          value="${esc(r.nombre||'')}" style="width:100%;min-height:38px">
+          ${(r.mods||[]).length?`<div class="hint" style="font-size:11.5px;margin-top:3px">${r.mods.map(m=>`+ ${esc(m.nombre)} (${money(m.precio)})`).join(' · ')}
+            <button class="rowbtn" data-cotmodquita="${ix}" style="font-size:11px;padding:2px 6px">quitar cambios</button></div>`:''}
+          <button class="rowbtn" data-cotmod="${ix}" style="font-size:11.5px;margin-top:4px">+ cambio / extra</button></td>
         <td><input type="text" inputmode="decimal" class="nospin" data-cotr="${ix}" data-cotf="cant"
           value="${esc(String(r.cant||1))}" style="width:72px;min-height:38px;text-align:right"></td>
-        <td style="font-variant-numeric:tabular-nums">${money(unit)}</td>
+        <td style="font-variant-numeric:tabular-nums">${r.id ? money(unit)
+          : `<input type="text" inputmode="decimal" class="nospin" data-cotr="${ix}" data-cotf="unit"
+              value="${unit ? esc(String(unit)) : ''}" placeholder="0.00" style="width:90px;min-height:38px;text-align:right">`}</td>
         <td style="font-weight:800;font-variant-numeric:tabular-nums">${money(unit * Number(r.cant||0))}</td>
         <td><button class="rowbtn" data-cotdel="${ix}" title="Quitar">✕</button></td></tr>`;
     });
@@ -388,7 +436,7 @@ async function cotPDF(){
 /* ---------- cableado ---------- */
 function wireCot(){
   $('#cotNueva')?.addEventListener('click', ()=>{ cotEdit = cotNuevo(); cotJalaMenu(); render(); });
-  $('#cotVolver')?.addEventListener('click', ()=>{ cotEdit = null; render(); });
+  $('#cotVolver')?.addEventListener('click', ()=>{ cotEdit = null; cotModPara = null; render(); });
   $('#cotMenuRetry')?.addEventListener('click', ()=>{ cotMenu=null; cotMenuErr=null; cotJalaMenu(); });
 
   $('#main').querySelectorAll('[data-cotabre]').forEach(b=>b.addEventListener('click', async ()=>{
@@ -406,7 +454,7 @@ function wireCot(){
   const liga = (id, campo) => $('#'+id)?.addEventListener('change', e=>{
     if(!cotEdit) return;
     cotEdit[campo] = e.target.value;
-    if(campo === 'sucursal') render();
+    if(campo === 'sucursal'){ cotJalaMenu(); render(); }
   });
   liga('cotCliente','cliente'); liga('cotFecha','fecha'); liga('cotSuc','sucursal');
   liga('cotSaludo','saludo'); liga('cotCierre','cierre'); liga('cotNotas','notas');
@@ -423,11 +471,24 @@ function wireCot(){
   $('#main').querySelectorAll('[data-cotadd]').forEach(b=>b.addEventListener('click', ()=>{
     const p = (cotMenu?.productos||[]).find(x=>x.id === b.dataset.cotadd);
     if(!p || !cotEdit) return;
+    /* Modo «cambio»: lo elegido se le suma al renglón marcado (Bembos + cambio
+       a papas sazonadas) en vez de ir como renglón aparte. */
+    if(cotModPara !== null && cotEdit.renglones[cotModPara]){
+      const r = cotEdit.renglones[cotModPara];
+      r.mods = r.mods || [];
+      if(r.base === undefined) r.base = { nombre: r.nombre, precio: Number(r.precio||0) };
+      r.mods.push({ nombre: p.nombre, precio: Number(p.precio||0) });
+      r.precio = Math.round((r.base.precio + r.mods.reduce((s,m)=>s+m.precio,0))*100)/100;
+      r.nombre = r.base.nombre + ' (' + r.mods.map(m=>m.nombre.toLowerCase()).join(', ') + ')';
+      r.id = (r.id||'x') + '+' + p.id;
+      cotModPara = null; cotBusca = '';
+      render(); return;
+    }
     /* Si ya está, se suma uno en vez de repetir el renglón: es lo que espera
        quien va picando «agregar» varias veces. */
     const ya = cotEdit.renglones.find(r => r.id === p.id);
     if(ya) ya.cant = Number(ya.cant||0) + 1;
-    else cotEdit.renglones.push({ id:p.id, codigo:'', nombre:p.nombre, cant:1, precio:p.precio });
+    else cotEdit.renglones.push({ id:p.id, codigo:'', nombre:p.nombre, cant:1, precio:Number(p.precio||0) });
     render();
   }));
 
@@ -444,11 +505,27 @@ function wireCot(){
     if(campo === 'cant'){
       const v = numMX(inp.value);
       r.cant = v > 0 ? v : 1;
+    } else if(campo === 'unit'){
+      /* Renglón a mano: se captura el unitario SIN IVA, como se imprime. */
+      const f = 1 + Number(cotEdit.iva||0)/100;
+      r.precio = Math.round(Math.max(0, numMX(inp.value)) * f * 100)/100;
     } else r[campo] = inp.value;
     render();
   }));
 
+  $('#main').querySelectorAll('[data-cotmod]').forEach(b=>b.addEventListener('click', ()=>{
+    cotModPara = Number(b.dataset.cotmod); cotBusca = ''; render();
+    const n = $('#cotBusca'); if(n){ n.scrollIntoView({block:'center'}); n.focus(); }
+  }));
+  $('#main').querySelectorAll('[data-cotmodquita]').forEach(b=>b.addEventListener('click', ()=>{
+    const r = cotEdit?.renglones[Number(b.dataset.cotmodquita)];
+    if(r && r.base){ r.nombre = r.base.nombre; r.precio = r.base.precio; r.mods = []; delete r.base; r.id = String(r.id).split('+')[0]; }
+    render();
+  }));
+  $('#cotModCancel')?.addEventListener('click', ()=>{ cotModPara = null; render(); });
+
   $('#main').querySelectorAll('[data-cotdel]').forEach(b=>b.addEventListener('click', ()=>{
+    cotModPara = null;
     if(!cotEdit) return;
     cotEdit.renglones.splice(Number(b.dataset.cotdel), 1);
     render();

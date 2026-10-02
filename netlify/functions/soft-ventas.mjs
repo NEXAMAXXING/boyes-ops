@@ -303,6 +303,73 @@ export default async (req) => {
     return bien({ metodos, tiene_pago_app: metodos.some(m => Number(m.id) === 22) });
   }
 
+  /* ================= MODO PRODUCTOS: el catálogo con precios =================
+     Para las cotizaciones: lo que hay en el punto de venta y a cuánto, tal
+     cual lo cobra la caja. National Soft no documenta la ruta del catálogo
+     de productos, así que se prueban las conocidas y se usa la primera que
+     conteste con una lista. `sondeo` dice qué contestó cada una. */
+  if (modo === "productos") {
+    const rutas = [
+      "/api/CompanyProducts/Get", "/api/CompanyProduct/Get", "/api/Products/Get",
+      "/api/Product/Get", "/api/CompanyMenu/Get", "/api/Menu/Get",
+      "/api/CompanyProductPrices/Get", "/api/ProductPrices/Get"
+    ];
+    const pide = async ruta => {
+      try {
+        const resp = await fetch(CATALOG + ruta, {
+          method: "POST",
+          headers: { AuthorizedApp: key, "Content-Type": "application/json" },
+          body: JSON.stringify({ AccountId: ACCOUNT, CompanyId: cid })
+        });
+        const t = await resp.text();
+        let d = null; try { d = JSON.parse(t); } catch { /* no vino JSON */ }
+        return { http: resp.status, ok: resp.ok, data: d, crudo: t.slice(0, 200) };
+      } catch (e) { return { http: 0, ok: false, data: null, crudo: String(e).slice(0, 200) }; }
+    };
+    const sondeo = [];
+    let lista = null, ruta = null;
+    for (const r of rutas) {
+      const rr = await pide(r);
+      const arr = Array.isArray(rr.data?.Object) ? rr.data.Object
+                : Array.isArray(rr.data) ? rr.data : null;
+      sondeo.push({ ruta: r, http: rr.http, n: arr ? arr.length : null,
+                    dice: rr.data?.Message?.ErrorMessage || (arr ? null : rr.crudo) });
+      if (arr && arr.length) { lista = arr; ruta = r; break; }
+    }
+    if (!lista) return malo("no encontré el catálogo de productos en el punto de venta", { sondeo });
+
+    const num = v => (v === null || v === undefined || v === "" || isNaN(Number(v))) ? null : Number(v);
+    const precioDe = x => {
+      for (const k of ["Price", "SalePrice", "PriceWithTax", "Price1", "UnitPrice", "PublicPrice"])
+        if (num(x?.[k]) !== null) return num(x[k]);
+      const ps = x?.Prices || x?.ProductPrices || x?.PriceList;
+      if (Array.isArray(ps) && ps.length) {
+        const p = ps[0]; for (const k of ["Price", "Amount", "Value", "Price1"]) if (num(p?.[k]) !== null) return num(p[k]);
+      }
+      return null;
+    };
+    /* Soft guarda TODO lo que alguna vez existió: promos viejas, grupos de
+       temporada, duplicados con otro precio. Las banderas (IsSuspended,
+       IsVisible…) vienen iguales en todos los productos, así que no sirven
+       para separar. Lo que sí separa es el grupo (HAMBURGUESAS, PIZZAS,
+       BURGER DAY, HAPPY HOUR…): la pantalla pone primero el menú normal. */
+    const productos = lista.map(x => ({
+      id: String(x?.ProductId ?? x?.Id ?? x?.Code ?? x?.ProductCode ?? ""),
+      clave: x?.Code ?? x?.ProductCode ?? null,
+      nombre: String(x?.Name ?? x?.ProductName ?? x?.Description ?? "SIN NOMBRE").trim(),
+      categoria: String(x?.Group?.Name ?? x?.GroupName ?? x?.Category?.Name ?? "").replace(/\s+/g, " ").trim(),
+      tipo: x?.Category?.Name ?? null,
+      precio: precioDe(x),
+      activo: x?.IsEnabled !== false,
+      visible: x?.IsVisible ?? null
+    }));
+    return bien({
+      sucursal, ruta, total: productos.length, productos, sondeo,
+      campos: Object.keys(lista[0] || {}).sort(),
+      muestra: lista.slice(0, 2)
+    });
+  }
+
   /* ================= MODO RANGO: varios días ================= */
   if (modo === "rango") {
     const desde = q("desde") || "", hasta = q("hasta") || "";
