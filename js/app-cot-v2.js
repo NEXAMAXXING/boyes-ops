@@ -45,7 +45,7 @@ const COT_CIERRE = 'Precios vigentes a la fecha de esta cotización. ' +
 const cotHoy = () => new Date().toISOString().slice(0,10);
 const cotNuevo = () => ({
   id: null, folio: null, cliente: '', fecha: cotHoy(), sucursal: 'guaymas',
-  saludo: COT_SALUDO, cierre: COT_CIERRE, notas: '', iva: 16, renglones: []
+  saludo: COT_SALUDO, cierre: COT_CIERRE, notas: '', lugar: '', iva: 16, renglones: []
 });
 
 /* ---------- datos ---------- */
@@ -71,7 +71,7 @@ async function cotJalaMenu(){
     if(j.error) throw new Error(j.error);
     const prods = (j.productos||[])
       .filter(p => p.activo !== false && p.nombre)
-      .map(p => ({ id: 'soft:'+(p.id||p.clave||p.nombre), nombre: String(p.nombre).trim(),
+      .map(p => ({ id: 'soft:'+(p.id||p.clave||p.nombre), clave: p.clave || '', nombre: String(p.nombre).trim(),
                    categoria: String(p.categoria||'').trim(), cat: String(p.categoria||'').trim(),
                    precio: p.precio === null || p.precio === undefined ? null : Number(p.precio) }));
     /* Los grupos de promoción o temporada van al final: el precio que se
@@ -182,6 +182,8 @@ function cotEditorView(){
         <option value="sancarlos" ${c.sucursal==='sancarlos'?'selected':''}>San Carlos</option>
       </select></label>
     </div>
+    <label style="display:block;margin-top:10px">Dirección del lugar <span class="hint">(opcional, sale abajo del cliente)</span>
+      <input type="text" id="cotLugar" maxlength="120" value="${esc(c.lugar||'')}" placeholder="Dónde es el evento"></label>
   </div>`;
 
   /* ---- el buscador de productos ---- */
@@ -300,6 +302,19 @@ function cotView(){
 }
 
 /* ---------- el PDF, con el formato de siempre ---------- */
+/* El PDF va sobre el membrete de Boye's (img/cot-fondo.jpg): papel, logo,
+   franja roja y pie con las dos sucursales ya vienen en la imagen. Aquí solo
+   se escribe encima lo que cambia: cliente, fecha, tabla y totales, con la
+   misma letra del diseño (DM Sans) y la misma tabla azul. */
+const cotRecurso = {};
+async function cotBase64(url){
+  if(cotRecurso[url]) return cotRecurso[url];
+  const buf = await fetch(url).then(r => { if(!r.ok) throw new Error(url); return r.arrayBuffer(); });
+  let bin = ''; const u = new Uint8Array(buf);
+  for(let i = 0; i < u.length; i += 0x8000) bin += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000));
+  return (cotRecurso[url] = btoa(bin));
+}
+
 async function cotPDF(){
   await loadPDF();
   const JS = (window.jspdf || {}).jsPDF;
@@ -309,117 +324,132 @@ async function cotPDF(){
 
   const n2 = v => Number(v||0).toLocaleString('es-MX',{minimumFractionDigits:2, maximumFractionDigits:2});
   const pesos = v => '$' + n2(v);
-  const TINTA=[29,27,22], SUAVE=[110,103,92], LINEA=[221,215,201], NAVY=[27,46,77];
+  const TINTA=[29,29,27], NAVY=[22,58,96], BLANCO=[255,255,255], NEGRO=[0,0,0];
 
   const doc = new JS({unit:'pt', format:'letter'});
-  const W = doc.internal.pageSize.getWidth();
-  const H = doc.internal.pageSize.getHeight();
-  const M = 54;
-  let y = 64;
+  const W = doc.internal.pageSize.getWidth();   // 612
+  const H = doc.internal.pageSize.getHeight();  // 792
 
-  doc.setFont('helvetica','bold').setFontSize(17).setTextColor(...NAVY);
-  doc.text("BOYE'S BURGERS & PIZZA", M, y);
-  doc.setFont('helvetica','normal').setFontSize(9).setTextColor(...SUAVE);
-  doc.text('Cotización', W-M, y-10, {align:'right'});
-  doc.setFont('helvetica','bold').setFontSize(10).setTextColor(...TINTA);
-  doc.text(c.folio || 'Nueva', W-M, y+2, {align:'right'});
-  y += 12;
-  doc.setDrawColor(...NAVY).setLineWidth(1.4); doc.line(M, y, W-M, y);
-  y += 22;
+  let fondo = null, F = 'helvetica';
+  try{
+    fondo = 'data:image/jpeg;base64,' + await cotBase64('/img/cot-fondo.jpg');
+    doc.addFileToVFS('DMSans-Regular.ttf', await cotBase64('/img/dmsans-400.ttf'));
+    doc.addFont('DMSans-Regular.ttf', 'DMSans', 'normal');
+    doc.addFileToVFS('DMSans-Bold.ttf', await cotBase64('/img/dmsans-700.ttf'));
+    doc.addFont('DMSans-Bold.ttf', 'DMSans', 'bold');
+    F = 'DMSans';
+  }catch(e){ /* sin membrete o sin letra: el PDF sale igual, más sencillo */ }
+  const hoja = () => { if(fondo) doc.addImage(fondo, 'JPEG', 0, 0, W, H, 'fondo', 'FAST'); };
+  hoja();
 
-  /* Encabezado a dos lados, como el formato original. */
-  doc.setFont('helvetica','normal').setFontSize(9).setTextColor(...SUAVE);
-  doc.text('Cotización a:', M, y);
-  doc.text('Fecha:', W-M-120, y);
-  y += 14;
-  doc.setFont('helvetica','bold').setFontSize(11.5).setTextColor(...TINTA);
-  doc.text(c.cliente || '(sin cliente)', M, y);
+  /* Medidas del diseño original (en puntos, desde arriba). */
+  const X0 = 82.5, X1 = 529.2;                 // bordes de la tabla
+  const CX = [X0, 147.9, 387.3, 456.1, X1];     // divisiones de columna
+  const LIMITE = 615;                            // donde empieza el pie azul
+
+  /* ---- encabezado: para quién y cuándo ---- */
+  doc.setFont(F,'bold').setFontSize(12).setTextColor(...NAVY);
+  doc.text('Cotización a:', X0, 160);
+  doc.text('Fecha:', 422.4, 160);
+  doc.setFont(F,'normal').setFontSize(12).setTextColor(...NEGRO);
+  doc.text(doc.splitTextToSize(c.cliente || '(sin cliente)', 280)[0], X0, 176);
   const f = new Date(c.fecha + 'T12:00:00');
-  doc.text(f.toLocaleDateString('es-MX',{day:'numeric',month:'long',year:'numeric'}), W-M-120, y);
-  y += 14;
-  doc.setFont('helvetica','normal').setFontSize(9).setTextColor(...SUAVE);
-  doc.text(suc.dir[suc.dir.length-1], W-M-120, y);
-  y += 22;
+  const fechaTxt = f.toLocaleDateString('es-MX',{day:'numeric',month:'long',year:'numeric'})
+    .replace(/ de (\w)/, (m, l) => ' de ' + l.toUpperCase());
+  doc.text(fechaTxt, 422.4, 176);
+  if((c.lugar||'').trim()){
+    let yl = 205;
+    for(const l of doc.splitTextToSize(c.lugar.trim(), 280).slice(0,2)){ doc.text(l, X0, yl); yl += 14; }
+  }
+  doc.text(c.sucursal === 'sancarlos' ? 'San Carlos, Son.' : 'Guaymas, Son.', X1, 205, {align:'right'});
 
+  let y = 232;
   if((c.saludo||'').trim()){
-    doc.setFont('helvetica','normal').setFontSize(9.5).setTextColor(...TINTA);
-    for(const l of doc.splitTextToSize(c.saludo.trim(), W-2*M)){ doc.text(l, M, y); y += 12; }
-    y += 10;
+    doc.setFont(F,'normal').setFontSize(9.5).setTextColor(...TINTA);
+    for(const l of doc.splitTextToSize(c.saludo.trim(), X1 - X0).slice(0,3)){ doc.text(l, X0, y); y += 12; }
+    y += 8;
   }
+  y = Math.max(y, 248);
 
-  /* Tabla */
-  const cols = [
-    {t:'Código', w:64,  a:'left'},
-    {t:'Platillo', w:0, a:'left'},
-    {t:'Cantidad', w:70, a:'center'},
-    {t:'Precio Unitario', w:96, a:'right'}
-  ];
-  cols[1].w = (W-2*M) - cols[0].w - cols[2].w - cols[3].w;
+  /* ---- la tabla ---- */
+  const ALTO_CAB = 35.6;
+  const cabecera = () => {
+    doc.setFillColor(...NAVY).setDrawColor(...NEGRO).setLineWidth(.5);
+    doc.rect(X0, y, X1 - X0, ALTO_CAB, 'FD');
+    doc.setFont(F,'bold').setFontSize(11).setTextColor(...BLANCO);
+    const mid = y + ALTO_CAB/2 + 4;
+    doc.text('Código', (CX[0]+CX[1])/2, mid, {align:'center'});
+    doc.text('Platillo', (CX[1]+CX[2])/2, mid, {align:'center'});
+    doc.text('Cantidad', (CX[2]+CX[3])/2, mid, {align:'center'});
+    doc.text('Precio', (CX[3]+CX[4])/2, mid - 6, {align:'center'});
+    doc.text('Unitario', (CX[3]+CX[4])/2, mid + 6, {align:'center'});
+    for(let i = 1; i < 4; i++) doc.line(CX[i], y, CX[i], y + ALTO_CAB);
+    y += ALTO_CAB;
+  };
+  cabecera();
 
-  doc.setDrawColor(...LINEA).setLineWidth(.6);
-  doc.setFont('helvetica','bold').setFontSize(8.5).setTextColor(...SUAVE);
-  let x = M;
-  cols.forEach(col=>{
-    const px = col.a==='right' ? x+col.w : col.a==='center' ? x+col.w/2 : x;
-    doc.text(col.t, px, y, {align: col.a==='left'?'left':col.a});
-    x += col.w;
-  });
-  y += 5; doc.line(M, y, W-M, y); y += 16;
+  /* Alto de renglón: el del diseño (35) si caben; si no, se aprieta hasta
+     24 y, si aun así no caben, la tabla sigue en otra hoja. */
+  const ALTO_TOT = 72;
+  const n = Math.max(1, c.renglones.length);
+  const RH = Math.max(24, Math.min(35.3, (LIMITE - ALTO_TOT - y) / n));
 
-  const salto = () => { if(y > H-150){ doc.addPage(); y = 64; } };
+  let inicioCuerpo = y;
+  const cierraCuerpo = () => {
+    doc.setDrawColor(...NEGRO).setLineWidth(.5);
+    for(let i = 1; i < 4; i++) doc.line(CX[i], inicioCuerpo, CX[i], y);
+    doc.line(X0, inicioCuerpo, X0, y); doc.line(X1, inicioCuerpo, X1, y);
+  };
   for(const r of c.renglones){
-    salto();
+    if(y + RH > LIMITE){
+      cierraCuerpo(); doc.addPage(); hoja(); y = 150; cabecera(); inicioCuerpo = y;
+    }
     const unit = cotUnit(r, N.factor);
-    let x2 = M;
-    doc.setFont('helvetica','normal').setFontSize(10).setTextColor(...TINTA);
-    doc.text(String(r.codigo||''), x2+1, y); x2 += cols[0].w;
-    for(const l of doc.splitTextToSize(String(r.nombre||''), cols[1].w-6).slice(0,1))
-      doc.text(l, x2, y);
-    x2 += cols[1].w;
-    doc.text(String(r.cant||0), x2+cols[2].w/2, y, {align:'center'}); x2 += cols[2].w;
-    doc.setFont('helvetica','bold');
-    doc.text(pesos(unit), x2+cols[3].w, y, {align:'right'});
-    y += 9; doc.setDrawColor(...LINEA).setLineWidth(.4); doc.line(M, y, W-M, y); y += 15;
+    const base = y + RH/2 + 4;
+    doc.setFont(F,'normal').setFontSize(10.5).setTextColor(...TINTA);
+    if(r.codigo) doc.text(String(r.codigo), (CX[0]+CX[1])/2, base, {align:'center'});
+    /* El nombre va en un renglón: si no cabe se achica la letra (hasta 8) y,
+       solo si ni así cabe, se parte en dos líneas más chicas. */
+    const ancho = CX[2] - CX[1] - 16, txt = String(r.nombre||'');
+    let fs = 10.5;
+    while(fs > 8 && doc.setFontSize(fs).getTextWidth(txt) > ancho) fs -= 0.5;
+    if(doc.getTextWidth(txt) <= ancho){
+      doc.text(txt, CX[1] + 9, base);
+    } else {
+      doc.setFontSize(8.5);
+      const ls = doc.splitTextToSize(txt, ancho).slice(0,2);
+      doc.text(ls, CX[1] + 9, base - 5);
+    }
+    doc.setFontSize(10.5);
+    doc.text(String(r.cant||0), (CX[2]+CX[3])/2, base, {align:'center'});
+    doc.text(pesos(unit), CX[3] + 9, base);
+    y += RH;
+    doc.setDrawColor(...NEGRO).setLineWidth(.5); doc.line(X0, y, X1, y);
   }
+  cierraCuerpo();
 
-  /* Totales pegados a la derecha, como el original. */
-  y += 6; salto();
-  const xEt = W - M - 96 - 90, xNum = W - M;
-  const totLinea = (et, val, fuerte) => {
-    doc.setFont('helvetica','bold').setFontSize(fuerte?12:10);
-    doc.setTextColor(...(fuerte?NAVY:SUAVE));
-    doc.text(et, xEt + 80, y, {align:'right'});
-    doc.setTextColor(...(fuerte?NAVY:TINTA));
-    doc.text(pesos(val), xNum, y, {align:'right'});
-    y += fuerte ? 20 : 16;
+  /* ---- totales, dentro del mismo recuadro ---- */
+  if(y + ALTO_TOT > LIMITE){ doc.addPage(); hoja(); y = 150; }
+  const yT = y;
+  let yy = y + 22;
+  const tot = (et, val, fuerte) => {
+    doc.setFont(F, fuerte ? 'bold' : 'normal').setFontSize(11.5).setTextColor(...TINTA);
+    doc.text(et, CX[3] - 12, yy, {align:'right'});
+    doc.text(pesos(val), CX[3] + 9, yy);
+    yy += 16.5;
   };
-  totLinea('Sub Total', N.sub);
-  totLinea(`IVA ${Number(c.iva)}%`, N.imp);
-  doc.setDrawColor(...NAVY).setLineWidth(1);
-  doc.line(xEt, y-11, W-M, y-11); y += 4;
-  totLinea('TOTAL', N.total, true);
+  tot('Sub Total', N.sub);
+  tot('IVA', N.imp);
+  tot('TOTAL', N.total, true);
+  y = yT + ALTO_TOT;
+  doc.setDrawColor(...NEGRO).setLineWidth(.5);
+  doc.line(X0, yT, X0, y); doc.line(X1, yT, X1, y); doc.line(X0, y, X1, y);
 
-  if((c.cierre||'').trim()){
-    y += 10; salto();
-    doc.setFont('helvetica','normal').setFontSize(9).setTextColor(...SUAVE);
-    for(const l of doc.splitTextToSize(c.cierre.trim(), W-2*M)){ doc.text(l, M, y); y += 11; }
+  if((c.cierre||'').trim() && y + 30 < LIMITE){
+    y += 18;
+    doc.setFont(F,'normal').setFontSize(9).setTextColor(...TINTA);
+    for(const l of doc.splitTextToSize(c.cierre.trim(), X1 - X0).slice(0,3)){ doc.text(l, X0, y); y += 11; }
   }
-
-  /* Pie con las dos sucursales, como el formato que ya usan. */
-  const yPie = H - 92;
-  doc.setDrawColor(...LINEA).setLineWidth(.6); doc.line(M, yPie-14, W-M, yPie-14);
-  const pieSuc = (s, x0, alin) => {
-    doc.setFont('helvetica','bold').setFontSize(9).setTextColor(...NAVY);
-    doc.text(s.nombre, x0, yPie, {align:alin});
-    doc.setFont('helvetica','normal').setFontSize(8).setTextColor(...SUAVE);
-    let yy = yPie + 11;
-    doc.text(s.tel, x0, yy, {align:alin}); yy += 10;
-    for(const l of s.dir){ doc.text(l, x0, yy, {align:alin}); yy += 9; }
-  };
-  pieSuc(COT_SUC.guaymas, M + 40, 'left');
-  pieSuc(COT_SUC.sancarlos, W - M - 40, 'right');
-  doc.setFont('helvetica','normal').setFontSize(7.5).setTextColor(...SUAVE);
-  doc.text('boyesburger.com', W/2, H-24, {align:'center'});
 
   const nombre = `Cotizacion ${(c.cliente||'Boyes').replace(/[^\w\s-]/g,'').trim().slice(0,40)} ${c.fecha}.pdf`;
   try{
@@ -444,7 +474,7 @@ function wireCot(){
       const d = await finRpc('cot_get', {p_id: b.dataset.cotabre});
       cotEdit = { id:d.id, folio:d.folio, cliente:d.cliente||'', fecha:String(d.fecha).slice(0,10),
                   sucursal:d.sucursal||'guaymas', saludo:d.saludo||'', cierre:d.cierre||'',
-                  notas:d.notas||'', iva:Number(d.iva||16), renglones:d.renglones||[] };
+                  notas:d.notas||'', lugar:d.lugar||'', iva:Number(d.iva||16), renglones:d.renglones||[] };
       cotJalaMenu(); render();
     }catch(e){ toast('No se pudo abrir: '+(e.message||'')); }
   }));
@@ -457,7 +487,7 @@ function wireCot(){
     if(campo === 'sucursal'){ cotJalaMenu(); render(); }
   });
   liga('cotCliente','cliente'); liga('cotFecha','fecha'); liga('cotSuc','sucursal');
-  liga('cotSaludo','saludo'); liga('cotCierre','cierre'); liga('cotNotas','notas');
+  liga('cotLugar','lugar'); liga('cotSaludo','saludo'); liga('cotCierre','cierre'); liga('cotNotas','notas');
 
   $('#cotBusca')?.addEventListener('input', e=>{
     cotBusca = e.target.value;
@@ -488,7 +518,7 @@ function wireCot(){
        quien va picando «agregar» varias veces. */
     const ya = cotEdit.renglones.find(r => r.id === p.id);
     if(ya) ya.cant = Number(ya.cant||0) + 1;
-    else cotEdit.renglones.push({ id:p.id, codigo:'', nombre:p.nombre, cant:1, precio:Number(p.precio||0) });
+    else cotEdit.renglones.push({ id:p.id, codigo:p.clave||'', nombre:p.nombre, cant:1, precio:Number(p.precio||0) });
     render();
   }));
 
@@ -541,7 +571,7 @@ function wireCot(){
       const N = cotCuentas(cotEdit);
       const d = await finRpc('cot_save', { p_id: cotEdit.id, p: {
         cliente: cotEdit.cliente, fecha: cotEdit.fecha, sucursal: cotEdit.sucursal,
-        saludo: cotEdit.saludo, cierre: cotEdit.cierre, notas: cotEdit.notas,
+        saludo: cotEdit.saludo, cierre: cotEdit.cierre, notas: cotEdit.notas, lugar: cotEdit.lugar||'',
         renglones: cotEdit.renglones, iva: cotEdit.iva, total: N.total } });
       cotEdit.id = d.id; cotEdit.folio = d.folio;
       cotLista = null; cotRefresca();
