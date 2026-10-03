@@ -234,9 +234,11 @@ function concCandidatos(mov, casillas){
      765 en vez de 765.88). Salen marcados y al confirmar se corrige la
      casilla al monto del banco. */
   const holg = Math.max(5, mov.monto * 0.005);
-  const exactos = casillas.filter(c => Math.abs(c.monto - mov.monto) < 0.01 && libre(c));
+  const K = concProveedor(mov);
+  const delProv = c => !K || c.cat === K;
+  const exactos = casillas.filter(c => Math.abs(c.monto - mov.monto) < 0.01 && libre(c) && delProv(c));
   const cand = exactos.length ? exactos
-    : casillas.filter(c => !c.fijo && Math.abs(c.monto - mov.monto) <= holg && libre(c))
+    : casillas.filter(c => !c.fijo && Math.abs(c.monto - mov.monto) <= holg && libre(c) && delProv(c))
               .map(c => ({...c, aprox: true}));
   const nom = (mov.beneficiario + ' ' + mov.concepto).toUpperCase();
   const puntos = c => {
@@ -253,6 +255,60 @@ function concCandidatos(mov, casillas){
    mejor coincide (fecha y nombre) y el otro va a "no encontrados" desde el
    principio — así confirmar uno nunca cambia de estado a otro. */
 let concRecientes = new Set();   // confirmados en esta sesión: se quedan a la vista
+
+/* ---------- proveedor → concepto, aprendido ----------
+   Cada vez que Rod confirma un cargo del banco contra una casilla, se guarda
+   quién era el beneficiario. Con eso la app aprende que "ARCA CONTINENTAL" va
+   en COCA COLA, que "CARNES YOREME" va en CARNES YOREME, etc. Cuando llega un
+   cargo de un proveedor conocido, solo se buscan casillas de SU concepto: un
+   pago a Arca nunca se va a proponer contra TRANSPORTE TAXI aunque el monto
+   se parezca. */
+let concHistBen = [];            // [{ben, cat}] de TODOS los meses de la sucursal
+const CONC_SEMILLA = [            // para arrancar mientras se junta historia
+  [/ARCA\s*CONTINENTAL|COCA[\s-]*COLA|\bFEMSA\b/, 'COCA COLA'],
+  [/\bSAM'?S\b|SAMS CLUB/, 'SAMS'],
+  [/YOREME/, 'CARNES YOREME'],
+  [/SURTICHEF/, 'SURTICHEF'],
+  [/MEGACABLE/, 'MEGACABLE'],
+  [/TELMEX|TELEFONOS DE MEXICO/, 'TELMEX']
+];
+function concBenClave(t){
+  return String(t||'').toUpperCase()
+    .replace(/\b(S\.?\s*DE\s*R\.?\s*L\.?|S\.?\s*A\.?|DE\s*C\.?\s*V\.?|SAPI|MX|MEX|MEXICO|SA|CV|RL|DE|LA|EL|Y)\b/g,' ')
+    .replace(/[^A-ZÑ0-9 ]/g,' ').split(/\s+/).filter(w=>w.length>2).slice(0,3).join(' ');
+}
+/* El concepto que le toca a un cargo, o null si no se sabe. Gana lo que la
+   historia dice más veces; la semilla solo si no hay historia. */
+function concProveedor(mov){
+  const k = concBenClave(mov.beneficiario || mov.concepto);
+  if(!k) return null;
+  const votos = {};
+  const suma = (ben, cat) => { if(concBenClave(ben) === k) votos[cat] = (votos[cat]||0) + 1; };
+  concHistBen.forEach(x => suma(x.ben, x.cat));
+  /* Lo confirmado en este mismo estado de cuenta también enseña al momento. */
+  if(concEdo){
+    for(const P of Object.values(concMeses)){
+      for(const [clave, u] of Object.entries((P.formato||{})._conc||{})){
+        if(!u || u.ben || !clave.startsWith('g|')) continue;
+        const m = concEdo.movs.find(x => x.id === u.mov);
+        if(m) suma(m.beneficiario || m.concepto, clave.split('|')[1]);
+      }
+    }
+  }
+  const mejor = Object.entries(votos).sort((a,b)=>b[1]-a[1])[0];
+  if(mejor) return mejor[0];
+  const t = (mov.beneficiario + ' ' + mov.concepto).toUpperCase();
+  const sem = CONC_SEMILLA.find(([re]) => re.test(t));
+  return sem ? sem[1] : null;
+}
+/* Casillas del mismo monto pero en OTRO renglón: quizá Karen lo puso donde no
+   iba. Se ofrecen aparte, para moverlas al concepto correcto. */
+function concOtroRenglon(mov, casillas){
+  const K = concProveedor(mov); if(!K) return [];
+  return casillas.filter(c => !c.fijo && c.cat !== K && !c.usada &&
+    Math.abs(c.monto - mov.monto) <= Math.max(5, mov.monto*0.005) &&
+    concDias(c.fecha, mov.fecha) <= concVentana);
+}
 function concReparte(pagos, casillas){
   const pares = [];
   for(const mov of pagos){
@@ -301,6 +357,13 @@ function concVecinos(ym){
 async function concCargaMeses(){
   concCargando = true;
   try{
+    try{
+      const {data: hist} = await sb.from('planilla_months').select('formato').eq('location_id', finLoc);
+      concHistBen = [];
+      (hist||[]).forEach(r => Object.entries(((r.formato||{})._conc)||{}).forEach(([clave, u]) => {
+        if(u && u.ben && clave.startsWith('g|')) concHistBen.push({ben: u.ben, cat: clave.split('|')[1]});
+      }));
+    }catch(e){ concHistBen = []; }
     const yms = concVecinos(concMes);
     const {data} = await sb.from('planilla_months').select('*')
       .eq('location_id', finLoc).in('year_month', yms);
@@ -333,7 +396,7 @@ async function concGuarda(ym){
   const pend = concPend[ym] || {};
   for(const [cat, dias] of Object.entries(pend.gv||{})){
     gv[cat] = gv[cat] || {};
-    for(const [d, v] of Object.entries(dias)) gv[cat][d] = v;
+    for(const [d, v] of Object.entries(dias)){ if(v==='') delete gv[cat][d]; else gv[cat][d] = v; }
   }
   for(const [nom, f] of Object.entries(pend.gf||{})) gf[nom] = { ...(gf[nom]||{}), ...f };
   delete concPend[ym];
@@ -398,6 +461,25 @@ async function concCaptura(movId, cat, fecha, nota){
   await concConfirma(movId, `g|${cat}|${d}`, ym, nota);
 }
 
+/* "Mover de renglón": Karen lo apuntó en otro concepto. Se quita de ahí y se
+   pone en el concepto del proveedor, mismo día, ya con el monto del banco. */
+async function concMueve(movId, ym, claveVieja, catNueva){
+  const mov = concEdo.movs.find(m=>m.id===movId); if(!mov || !catNueva) return;
+  const P = concMeses[ym]; if(!P) return;
+  const [, catVieja, d] = claveVieja.split('|');
+  if(planN((P.gastos_var?.[catNueva]||{})[d])){ toast(`${catNueva} del ${d} ya tiene un monto — captúralo en otro día`); return; }
+  P.gastos_var[catVieja] = P.gastos_var[catVieja] || {};
+  delete P.gastos_var[catVieja][d];
+  P.gastos_var[catNueva] = P.gastos_var[catNueva] || {};
+  P.gastos_var[catNueva][d] = mov.monto;
+  const fv = (P.formato||{})[claveVieja];
+  if(fv){ delete P.formato[claveVieja]; }
+  concPend[ym] = concPend[ym] || {}; concPend[ym].gv = concPend[ym].gv || {};
+  (concPend[ym].gv[catVieja] = concPend[ym].gv[catVieja] || {})[d] = '';
+  (concPend[ym].gv[catNueva] = concPend[ym].gv[catNueva] || {})[d] = mov.monto;
+  await concConfirma(movId, `g|${catNueva}|${d}`, ym, `Movido de ${catVieja}`);
+}
+
 /* "Es gasto fijo": el monto puede no coincidir (subió la mensualidad). Se toma
    el monto del banco como el real del mes y se marca pagado. */
 async function concAFijo(movId, nom, ym){
@@ -434,6 +516,7 @@ async function concConfirma(movId, clave, ym, nota){
   P.formato._conc = P.formato._conc || {};
   const mov = concEdo.movs.find(m=>m.id===movId);
   P.formato._conc[clave] = {mov: movId, fecha_banco: mov?.fecha, monto: mov?.monto,
+                            ben: mov ? (mov.beneficiario || mov.concepto || '') : '',
                             por: user.name, cuando: new Date().toISOString()};
   P.formato[clave] = { ...(P.formato[clave]||{}), bg: CONC_COLOR };
   if(nota) P.formato[clave].nota = nota;
@@ -722,15 +805,22 @@ function concView(){
         .concat(typeof PLAN_GF!=='undefined' ? PLAN_GF : []).filter((x,i,a)=>a.indexOf(x)===i);
       const cats = [...new Set([...(typeof PLAN_GV!=='undefined'?PLAN_GV:[]),
         ...Object.values(concMeses).flatMap(P=>Object.keys(P.gastos_var||{}))])];
-      const sug = cats.find(c => c.split(/[^A-ZÑ]+/i).filter(x=>x.length>3)
-        .some(x => (mov.beneficiario+' '+mov.concepto).toUpperCase().includes(x.toUpperCase()))) || '';
+      const K = concProveedor(mov);
+      const sug = (K && cats.includes(K)) ? K : (cats.find(c => c.split(/[^A-ZÑ]+/i).filter(x=>x.length>3)
+        .some(x => (mov.beneficiario+' '+mov.concepto).toUpperCase().includes(x.toUpperCase()))) || '');
+      const otros = concOtroRenglon(mov, casillas);
       const mid = esc(mov.id);
       const comp = rep.compite.get(mov.id);
       h += `<div class="conc-cand" style="background:#FFF1EF">
         <span style="font-size:12.5px">${comp
           ? `Hay una casilla de este monto (${esc(concEtiqueta(comp, mov))}), pero le corresponde mejor a otro cargo del banco igual. Parece que falta capturar uno de los dos.`
-          : `No hay ninguna casilla de ese monto sin usar en ±${concVentana} días. O no está capturado, o el monto no coincide.`} ¿Qué es?</span></div>
+          : K ? `Este proveedor va en <b>${esc(K)}</b> y ahí no hay ninguna casilla libre de ese monto en ±${concVentana} días.`
+              : `No hay ninguna casilla de ese monto sin usar en ±${concVentana} días. O no está capturado, o el monto no coincide.`} ¿Qué es?</span></div>
       <div class="conc-opc">
+        ${otros.length ? `<div class="conc-o" style="border-color:#E0A100;background:#FFF9E8"><b>🔀 ¿Karen lo puso en otro renglón?</b>
+          <select data-cmvsel="${mid}">${otros.map(c=>`<option value="${esc(c.ym)}|${esc(c.clave)}">${esc(c.cat)} · ${c.dia} ${CONC_MESES[Number(c.ym.slice(5,7))].slice(0,3)} · ${money(c.monto)}</option>`).join('')}</select>
+          <button class="btn-primary" data-cmvok="${mid}" data-cmvcat="${esc(K)}">Mover a ${esc(K)} y confirmar</button>
+          <span class="hint">Solo si de verdad fue error: lo quita de ese renglón y lo pasa a ${esc(K)} el mismo día.</span></div>` : ''}
         <div class="conc-o"><b>🔒 Es gasto fijo</b>
           <select data-cfnom="${mid}">${fijos.map(f=>`<option>${esc(f)}</option>`).join('')}</select>
           <select data-cfym="${mid}">${mesesF.map(ym=>{
@@ -739,7 +829,7 @@ function concView(){
           <button class="btn-primary" data-cfok="${mid}">Aplicar</button>
           <span class="hint">Lo marca pagado y deja ${money(mov.monto)} como monto real de ese mes.</span></div>
         <div class="conc-o"><b>✏️ Capturarlo como gasto</b>
-          <select data-ccat="${mid}"><option value="">Concepto…</option>${cats.map(c=>`<option${c===sug?' selected':''}>${esc(c)}</option>`).join('')}</select>
+          <select data-ccat="${mid}"><option value="">Concepto…</option>${cats.map(c=>`<option${c===sug?' selected':''}>${esc(c)}</option>`).join('')}</select>${K?`<span class="hint">sugerido por el proveedor: <b>${esc(K)}</b></span>`:''}
           <input type="date" data-cfec="${mid}" value="${esc(mov.fecha)}">
           <input type="text" class="conc-nota" data-cnotacap="${mid}" placeholder="💬 Nota (opcional)">
           <button class="btn-primary" data-ccok="${mid}">Capturar</button>
@@ -847,6 +937,9 @@ function wireConc(){
   document.querySelectorAll('[data-cnotaok]').forEach(i=>i.addEventListener('change', ()=>{
     const [ym, ...r] = i.dataset.cnotaok.split('|'); concNota(r.join('|'), ym, i.value.trim()); }));
   document.querySelectorAll('.conc-nota').forEach(i=>i.addEventListener('keydown', e=>{ if(e.key==='Enter') i.blur(); }));
+  document.querySelectorAll('[data-cmvok]').forEach(b=>b.addEventListener('click', ()=>{
+    const id = b.dataset.cmvok, [ym, ...r] = _v('data-cmvsel', id).split('|');
+    concMueve(id, ym, r.join('|'), b.dataset.cmvcat); }));
   document.querySelectorAll('[data-cfok]').forEach(b=>b.addEventListener('click', ()=>{
     const id = b.dataset.cfok; concAFijo(id, _v('data-cfnom', id), _v('data-cfym', id)); }));
   document.querySelectorAll('[data-ccok]').forEach(b=>b.addEventListener('click', ()=>{
