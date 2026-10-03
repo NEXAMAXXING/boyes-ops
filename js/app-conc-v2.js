@@ -313,7 +313,7 @@ function concReparte(pagos, casillas){
   const pares = [];
   for(const mov of pagos){
     if(['comision','traspaso','rendimiento','deposito_tarjeta'].includes(mov.clase) || mov.tipo==='abono') continue;
-    if(concIgnorado(mov) || casillas.some(c => c.usada && c.usada.mov === mov.id)) continue;
+    if(concIgnorado(mov) || concPendiente(mov) || casillas.some(c => c.usada && c.usada.mov === mov.id)) continue;
     concCandidatos(mov, casillas).forEach((c, i) => pares.push({mov, c, i, aprox: !!c.aprox}));
   }
   pares.sort((a,b) => (a.aprox-b.aprox) || (a.i-b.i));
@@ -335,6 +335,7 @@ function concEstadoDe(mov, casillas, rep){
   if(['comision','traspaso','rendimiento','deposito_tarjeta'].includes(mov.clase)) return 'aparte';
   if(mov.tipo === 'abono') return 'aparte';
   if(concIgnorado(mov)) return 'ignorado';
+  if(concPendiente(mov)) return 'pendiente';
   const yaUsada = casillas.find(c => c.usada && c.usada.mov === mov.id);
   if(yaUsada) return 'confirmado';
   if(rep) return rep.deMov.has(mov.id) ? 'propuesto' : 'sin_apunte';
@@ -443,6 +444,102 @@ async function concDesignora(movId){
   if(P?.formato?._concIgn) delete P.formato._concIgn[movId];
   render();
   try{ await concGuarda(ym); }catch(e){ toast('No se pudo guardar — revisa tu conexión'); }
+}
+
+/* "Dejar pendiente": un cargo que Rod no reconoce y quiere checar con Karen.
+   Se guarda en el mes del movimiento (formato._concChk) con todo lo necesario
+   para el reporte en PDF, aunque después ya no se tenga el estado de cuenta. */
+function concPendiente(mov){
+  const P = concMeses[mov.fecha.slice(0,7)];
+  return P && P.formato && P.formato._concChk ? P.formato._concChk[mov.id] : null;
+}
+async function concDejaPend(movId, nota){
+  const mov = concEdo.movs.find(m=>m.id===movId); if(!mov) return;
+  const ym = mov.fecha.slice(0,7), P = concMeses[ym]; if(!P) return;
+  P.formato = P.formato || {}; P.formato._concChk = P.formato._concChk || {};
+  P.formato._concChk[movId] = {nota: nota||'', monto: mov.monto, fecha: mov.fecha,
+    ben: mov.beneficiario||'', concepto: mov.concepto||'', por: user.name, cuando: new Date().toISOString()};
+  render(); toast('Quedó pendiente para checar con Karen');
+  try{ await concGuarda(ym); }catch(e){ toast('No se pudo guardar — revisa tu conexión'); }
+}
+async function concQuitaPend(movId){
+  const mov = concEdo.movs.find(m=>m.id===movId); if(!mov) return;
+  const ym = mov.fecha.slice(0,7), P = concMeses[ym];
+  if(P?.formato?._concChk) delete P.formato._concChk[movId];
+  render();
+  try{ await concGuarda(ym); }catch(e){ toast('No se pudo guardar — revisa tu conexión'); }
+}
+async function concNotaPend(movId, nota){
+  const mov = concEdo.movs.find(m=>m.id===movId); if(!mov) return;
+  const ym = mov.fecha.slice(0,7), P = concMeses[ym];
+  const x = P?.formato?._concChk?.[movId]; if(!x) return;
+  x.nota = nota;
+  try{ await concGuarda(ym); toast('Nota guardada'); }catch(e){ toast('No se pudo guardar — revisa tu conexión'); }
+}
+
+/* Reporte PDF de los pendientes, para mandárselo a Karen. Sale de lo que está
+   guardado en las planillas cargadas (no de la pantalla), ordenado por fecha. */
+async function concPendPDF(){
+  const lista = [];
+  for(const P of Object.values(concMeses))
+    for(const [id, x] of Object.entries(((P.formato||{})._concChk)||{})) lista.push({id, ...x});
+  if(!lista.length){ toast('No hay pendientes'); return; }
+  lista.sort((a,b)=> a.fecha.localeCompare(b.fecha) || a.monto-b.monto);
+  await loadPDF();
+  const JS = (window.jspdf || {}).jsPDF;
+  if(!JS){ toast('No se pudo cargar el generador de PDF'); return; }
+  const doc = new JS({unit:'pt', format:'letter'});
+  const W = doc.internal.pageSize.getWidth(), H = doc.internal.pageSize.getHeight(), M = 40;
+  const suc = (LOCS[finLoc]||'').replace(/^Boye's\s*/,'');
+  const total = lista.reduce((s,x)=>s+Number(x.monto||0),0);
+  const fmt = n => '$' + Number(n||0).toLocaleString('es-MX',{minimumFractionDigits:2, maximumFractionDigits:2});
+  const fch = f => { const [y,m,d] = f.split('-'); return `${d} ${CONC_MESES[Number(m)].slice(0,3)} ${y}`; };
+  const enc = () => {
+    doc.setFillColor(27,42,74); doc.rect(0,0,W,64,'F');
+    doc.setTextColor(255,255,255); doc.setFont('helvetica','bold'); doc.setFontSize(16);
+    doc.text('Movimientos del banco por aclarar', M, 30);
+    doc.setFont('helvetica','normal'); doc.setFontSize(10);
+    doc.text(`Boye's ${suc} · estado de cuenta de ${concNomMes(concMes)} · ${lista.length} movimiento${lista.length===1?'':'s'} · ${fmt(total)}`, M, 48);
+    doc.setTextColor(30,30,30);
+  };
+  enc();
+  let y = 88;
+  doc.setFontSize(9.5);
+  doc.text('Karen: estos cargos salieron en el estado de cuenta y no los encontré en la planilla. ¿Qué son y en qué concepto/día van?', M, y);
+  y += 18;
+  const cols = [[M,'Fecha'],[M+70,'Beneficiario / concepto del banco'],[W-M-140,'Nota de Rod / respuesta de Karen']];
+  const cab = () => {
+    doc.setFillColor(238,234,224); doc.rect(M-4, y-12, W-2*M+8, 18, 'F');
+    doc.setFont('helvetica','bold'); doc.setFontSize(9);
+    cols.forEach(([x,t]) => doc.text(t, x, y)); doc.text('Monto', W-M-150, y, {align:'right'});
+    doc.setFont('helvetica','normal'); y += 16;
+  };
+  cab();
+  for(const x of lista){
+    const ben = doc.splitTextToSize(`${x.ben||''}${x.concepto && x.concepto!==x.ben ? ' · '+x.concepto : ''}`, W-M-210-(M+70)-10);
+    const nota = doc.splitTextToSize(x.nota || '', 140);
+    const alto = Math.max(ben.length, nota.length, 1) * 11 + 18;
+    if(y + alto > H - 50){ doc.addPage(); enc(); y = 88; cab(); }
+    doc.setFontSize(9.5);
+    doc.text(fch(x.fecha), M, y);
+    doc.text(ben, M+70, y);
+    doc.setFont('helvetica','bold'); doc.text(fmt(x.monto), W-M-150, y, {align:'right'}); doc.setFont('helvetica','normal');
+    doc.text(nota, W-M-140, y);
+    doc.setDrawColor(200,200,200);
+    doc.line(W-M-140, y + Math.max(nota.length,1)*11 + 2, W-M, y + Math.max(nota.length,1)*11 + 2);
+    y += alto;
+    doc.setDrawColor(225,220,208); doc.line(M-4, y-12, W-M+4, y-12);
+  }
+  doc.setFont('helvetica','bold'); doc.setFontSize(10.5);
+  doc.text(`Total por aclarar: ${fmt(total)}`, W-M, y+4, {align:'right'});
+  doc.setFont('helvetica','normal'); doc.setFontSize(8); doc.setTextColor(120,120,120);
+  doc.text(`Generado ${new Date().toLocaleDateString('es-MX',{day:'numeric',month:'long',year:'numeric'})} por ${user.name} · Boye's Ops`, M, H-24);
+  const nombre = `Pendientes banco ${suc} ${concMes}.pdf`;
+  try{
+    const archivo = new File([doc.output('blob')], nombre, {type:'application/pdf'});
+    if(navigator.canShare && navigator.canShare({files:[archivo]})){ await navigator.share({files:[archivo], title:nombre}); return; }
+  }catch(e){}
+  doc.save(nombre);
 }
 
 /* "Capturarlo aquí": el pago sí es gasto pero nadie lo apuntó. Se escribe en
@@ -632,7 +729,8 @@ function concChip(estado){
     propuesto  : ['Por confirmar', '#8A5A00', '#FFF3D0'],
     sin_apunte : ['Sin apunte', '#C0261F', '#FFE4E1'],
     aparte     : ['Va aparte', '#5B6472', '#EDEDED'],
-    ignorado   : ['No va', '#5B6472', '#EDEDED']
+    ignorado   : ['No va', '#5B6472', '#EDEDED'],
+    pendiente  : ['⏸ Pendiente', '#8A5A00', '#FFE7B0']
   };
   const [t,c,b] = M[estado] || M.aparte;
   return `<span class="conc-chip" style="color:${c};background:${b}">${t}</span>`;
@@ -649,6 +747,7 @@ function concView(){
     .conc-mov.sin{border-left:4px solid #C0261F}
     .conc-nota{flex:0 1 260px;min-width:160px;padding:6px 8px;border:1px solid #D8D2C4;border-radius:7px;font-family:inherit;font-size:12.5px}
     .conc-sec{display:flex;flex-direction:column;gap:2px;margin:16px 0 8px;padding-bottom:6px;border-bottom:2px solid #E1DCD0;font-size:14px}
+    .conc-mov.pend{border-left:4px solid #E0A100;background:#FFFCF3}
     .conc-mov.ign{border-left:4px solid #8A8F98;opacity:.8}
     .conc-opc{display:flex;flex-direction:column;gap:6px;margin-top:8px}
     .conc-o{display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:12.5px;padding:7px 9px;border:1px dashed #E1DCD0;border-radius:8px}
@@ -731,6 +830,7 @@ function concView(){
     <div class="conc-res">
       <div class="conc-k" style="border-left-color:#0B6E3F"><div class="l">Confirmados</div><div class="v">${nOk}</div></div>
       <div class="conc-k" style="border-left-color:#E0A100"><div class="l">Por confirmar</div><div class="v">${nProp}</div></div>
+      <div class="conc-k" style="border-left-color:#E0A100"><div class="l">Pendientes (Karen)</div><div class="v">${estados.filter(x=>x.estado==='pendiente').length}</div></div>
       <div class="conc-k" style="border-left-color:#C0261F"><div class="l">Sin apunte</div><div class="v">${nSin}</div>
         <div class="hint" style="margin:2px 0 0">${money(mSin)}</div></div>
     </div>
@@ -751,10 +851,12 @@ function concView(){
       sec==='match' ? (estado==='propuesto' || (estado==='confirmado' && concRecientes.has(mov.id))) :
       sec==='sin'   ? estado==='sin_apunte' :
       sec==='ign'   ? estado==='ignorado' :
+      sec==='pend'  ? estado==='pendiente' :
       sec==='ok'    ? estado==='confirmado' : true);
   const secciones = concFiltro==='pendientes'
     ? [['match','✅ Encontré la casilla — por confirmar', 'Revisa y confirma. Al confirmar se queda aquí en verde.'],
        ['sin','❓ No los encontré en la planilla', 'Ninguna casilla libre con ese monto. Elige qué es cada uno.'],
+       ['pend','⏸ Pendientes de checar con Karen', 'Salen en el PDF para mandárselo. Cuando sepas qué es, dale "Ya lo resolví" y vuelve a su lugar.'],
        ['ign','🚫 Marcados como "no va en la planilla"', '']]
     : [[concFiltro==='ok'?'ok':concFiltro==='sin'?'sin':'todos', '', '']];
 
@@ -763,9 +865,10 @@ function concView(){
   const visibles = enSec(sec);
   if(!visibles.length) continue;
   hay = true;
-  if(titulo) h += `<div class="conc-sec"><b>${titulo} · ${visibles.length}</b>${ayuda?`<span class="hint">${ayuda}</span>`:''}</div>`;
+  if(titulo) h += `<div class="conc-sec"><b>${titulo} · ${visibles.length}</b>${ayuda?`<span class="hint">${ayuda}</span>`:''}
+    ${sec==='pend'?`<button class="btn-primary" id="concPendPDF" style="align-self:flex-start;margin-top:6px">📄 PDF de pendientes para Karen</button>`:''}</div>`;
   for(const {mov, estado} of visibles){
-    const cls = estado==='confirmado'?'ok':(estado==='sin_apunte'?'sin':(estado==='ignorado'?'ign':'prop'));
+    const cls = estado==='confirmado'?'ok':(estado==='sin_apunte'?'sin':(estado==='ignorado'?'ign':(estado==='pendiente'?'pend':'prop')));
     h += `<div class="conc-mov ${cls}">
       <div class="conc-top">
         <span class="mnt">${money(mov.monto)}</span>
@@ -792,7 +895,14 @@ function concView(){
           </option>`).join('')}
         </select>
         <input type="text" class="conc-nota" data-cnotaprop="${esc(mov.id)}" placeholder="💬 Nota (opcional)">
-        <button class="btn-primary" data-concok="${esc(mov.id)}">Confirmar</button></div>`;
+        <button class="btn-primary" data-concok="${esc(mov.id)}">Confirmar</button>
+        <button class="btn-quiet" data-cpok="${esc(mov.id)}" title="No lo reconozco: checar con Karen">⏸ Pendiente</button></div>`;
+    } else if(estado==='pendiente'){
+      const pd = concPendiente(mov);
+      h += `<div class="conc-cand" style="background:#FFF6E0">
+        <span style="font-size:12.5px">⏸ Pendiente de checar con Karen ${pd.por?`(${esc(pd.por)})`:''}</span>
+        <input type="text" class="conc-nota" data-cpnota="${esc(mov.id)}" value="${esc(pd.nota||'')}" placeholder="💬 Pregunta para Karen">
+        <button class="btn-quiet" data-cpquita="${esc(mov.id)}" style="margin-left:auto">Ya lo resolví</button></div>`;
     } else if(estado==='ignorado'){
       const ig = concIgnorado(mov);
       h += `<div class="conc-cand">
@@ -834,6 +944,9 @@ function concView(){
           <input type="text" class="conc-nota" data-cnotacap="${mid}" placeholder="💬 Nota (opcional)">
           <button class="btn-primary" data-ccok="${mid}">Capturar</button>
           <span class="hint">Lo escribe en la planilla ese día y queda confirmado.</span></div>
+        <div class="conc-o" style="border-color:#E0A100"><b>⏸ Dejar pendiente</b>
+          <input type="text" data-cpnew="${mid}" placeholder="Pregunta para Karen (ej. ¿2ª factura de Arca?)">
+          <button class="btn-quiet" data-cpok="${mid}">Dejar pendiente</button></div>
         <div class="conc-o"><b>🚫 No va en la planilla</b>
           <input type="text" data-cinota="${mid}" placeholder="¿Por qué? (personal, traspaso…)">
           <button class="btn-quiet" data-ciok="${mid}">Marcar</button></div>
@@ -937,6 +1050,11 @@ function wireConc(){
   document.querySelectorAll('[data-cnotaok]').forEach(i=>i.addEventListener('change', ()=>{
     const [ym, ...r] = i.dataset.cnotaok.split('|'); concNota(r.join('|'), ym, i.value.trim()); }));
   document.querySelectorAll('.conc-nota').forEach(i=>i.addEventListener('keydown', e=>{ if(e.key==='Enter') i.blur(); }));
+  document.querySelectorAll('[data-cpok]').forEach(b=>b.addEventListener('click', ()=>{
+    const id = b.dataset.cpok; concDejaPend(id, _v('data-cpnew', id).trim()); }));
+  document.querySelectorAll('[data-cpquita]').forEach(b=>b.addEventListener('click', ()=>concQuitaPend(b.dataset.cpquita)));
+  document.querySelectorAll('[data-cpnota]').forEach(i=>i.addEventListener('change', ()=>concNotaPend(i.dataset.cpnota, i.value.trim())));
+  document.getElementById('concPendPDF')?.addEventListener('click', concPendPDF);
   document.querySelectorAll('[data-cmvok]').forEach(b=>b.addEventListener('click', ()=>{
     const id = b.dataset.cmvok, [ym, ...r] = _v('data-cmvsel', id).split('|');
     concMueve(id, ym, r.join('|'), b.dataset.cmvcat); }));
