@@ -505,7 +505,7 @@ let corWeek=null, corData=null, corEdit=null;
 let pedData=null, pedWeek=null, pedEdit2={};
 let _pedChannel=null, _pedBroadcasting=false;
 let planData=null, planEdit={}, planMonth=null, planTab='main';
-let planTodos=false, planExtra=[], planSem=0;
+let planTodos=false, planExtra=[], planSem=0, planIrA=null, planScrollX=null;
 let schData=null, schWeek=null, schEdit={}, schSelEmp=null;
 
 /* ---------- helpers ---------- */
@@ -1691,100 +1691,137 @@ function planViewMain(){
     <button class="wkbtn" data-plansem="${planSem+1}" ${planSem===weeks.length-1?'disabled':''} aria-label="Semana siguiente">›</button>
   </div>`;
 
+  /* El mes entero en una sola tabla que se desliza de lado, como la hoja de
+     Rod: semana tras semana, cada una cerrada con su TOTAL. Las fichas de
+     arriba ya no cambian de tabla: llevan a esa semana dentro de la misma. */
+  const COLS = [];
+  weeks.forEach((wx, i) => {
+    wx.days.forEach((d, j) => COLS.push({t:'d', d, ini: j===0 && i>0}));
+    COLS.push({t:'w', i});
+  });
+  const ANCHO_CL = 212, ANCHO_D = 92, ANCHO_T = 104;
+  const anchoTabla = ANCHO_CL + COLS.reduce((s,c)=>s+(c.t==='d'?ANCHO_D:ANCHO_T), 0);
+  const tdCls = (c, extra) => {
+    const k = [];
+    if(c.t==='w') k.push('tc');
+    if(c.ini) k.push('wini');
+    if(extra) k.push(extra);
+    return k.length ? ` class="${k.join(' ')}"` : '';
+  };
+  const ventaDia = d => planN((v[d]||{}).ef)+planN((v[d]||{}).tj)+planN((v[d]||{}).ra)+planN((v[d]||{}).mq);
+
+  h += `<style>
+    .pt .wini{box-shadow:inset 3px 0 0 #8FA3C0}
+    .pt thead th.wini{box-shadow:inset 3px 0 0 #8FA3C0}
+    #wkSlide .wk-sc{scroll-behavior:smooth;scroll-snap-type:x proximity}
+    #wkSlide .pt th.snap{scroll-snap-align:start}
+  </style>`;
+
+  const mesVenta = semTot.reduce((s,x)=>s+x.venta,0);
   h += `<div class="wk" id="wkSlide">
-      <div class="wk-h">SEMANA ${w.wk}
-        <span class="sub">${dIni===dFin?`${dIni}`:`${dIni} al ${dFin}`} de ${nomMes}</span>
-        <span class="tot">${st.venta>0?money(st.venta):'—'}</span></div>
-      <div class="wk-sc"><table class="pt">
-        <colgroup><col style="width:212px">${w.days.map(()=>'<col>').join('')}<col style="width:104px"></colgroup>
+      <div class="wk-h">${nomMes.toUpperCase()}
+        <span class="sub">desliza de lado para ver todo el mes</span>
+        <span class="tot">${mesVenta>0?money(mesVenta):'—'}</span></div>
+      <div class="wk-sc" id="wkScroll"><table class="pt" style="width:${anchoTabla}px;min-width:${anchoTabla}px">
+        <colgroup><col style="width:${ANCHO_CL}px">${COLS.map(c=>`<col style="width:${c.t==='d'?ANCHO_D:ANCHO_T}px">`).join('')}</colgroup>
         <thead><tr>
         <th class="cl">CONCEPTO</th>`;
-  w.days.forEach(d=>{
-    const dow = planDowShort(planMonth, d);
+  COLS.forEach(c=>{
+    if(c.t==='w'){ h += `<th class="tc">TOTAL S${weeks[c.i].wk}</th>`; return; }
+    const dow = planDowShort(planMonth, c.d);
     const fin = dow==='S'||dow==='D';
-    h += `<th class="${dow==='D'?'dom':(fin?'fin':'')}" style="padding:5px 4px;font-size:10px">${dow}<br>
-          <span style="font-size:12.5px;font-weight:800">${d}</span></th>`;
+    const wkI = weeks.findIndex(x=>x.days[0]===c.d);
+    h += `<th class="${[dow==='D'?'dom':(fin?'fin':''), c.ini?'wini':'', wkI>=0?'snap':''].filter(Boolean).join(' ')}"${wkI>=0?` data-wkstart="${wkI}"`:''} style="padding:5px 4px;font-size:10px">${dow}<br>
+          <span style="font-size:12.5px;font-weight:800">${c.d}</span></th>`;
   });
-  h += `<th class="tc">TOTAL</th></tr></thead><tbody>`;
+  h += `</tr></thead><tbody>`;
+  const NC = COLS.length + 1;
 
-  // ventas
-  h += `<tr class="sh"><td colspan="${w.days.length+2}" style="background:#1B2E4D"><b>Ventas</b></td></tr>`;
-  h += filaVenta(w,'EFECTIVO','ef','er');
-  h += filaVenta(w,'TARJETA BANCARIA CORTE','tj','tr');
+  const filaVentaMes = (label, key) => {
+    let cel = '', mes = 0;
+    COLS.forEach(c=>{
+      if(c.t==='w'){
+        const t = weeks[c.i].days.reduce((s,d)=>s+planN((v[d]||{})[key]),0); mes += t;
+        cel += `<td class="tc">${t>0?money0(t):''}</td>`; return;
+      }
+      cel += `<td${tdCls(c)}><input type="text" size="1" inputmode="decimal" class="nospin" data-pv="${c.d}" data-pvf="${key}" value="${(v[c.d]||{})[key]||''}"></td>`;
+    });
+    return `<tr><td class="cl">${label}</td>${cel}</tr>`;
+  };
 
-  /* TARJETA BANCARIA REAL ya no se teclea: llega del corte de la semana, que
-     es donde Karen ya capturó el voucher de la terminal. Si alguien escribió
-     algo a mano en un día, eso manda —no se le borra su corrección—, y se
-     marca para que se vea que ese número no vino del corte. */
+  h += `<tr class="sh"><td colspan="${NC}" style="background:#1B2E4D"><b>Ventas</b></td></tr>`;
+  h += filaVentaMes('EFECTIVO','ef');
+  h += filaVentaMes('TARJETA BANCARIA CORTE','tj');
+
+  /* TARJETA BANCARIA REAL ya no se teclea: llega del corte de la semana. Si
+     alguien escribió algo a mano en un día, eso manda. */
   const vouOk = plaVouClave === `${finLoc}|${planMonth}`;
   {
-    let wk = 0, cel = '', delCorte = 0, aMano = 0, sinDato = 0;
-    w.days.forEach(d=>{
+    const realDe = d => {
       const manual = planN((v[d]||{}).tr);
       const corte  = vouOk && plaVou[d] != null ? Number(plaVou[d]) : null;
-      const val = manual > 0 ? manual : corte;
-      if(manual > 0) aMano++; else if(corte !== null) delCorte++; else sinDato++;
-      wk += val || 0;
-      cel += val === null || val === undefined
-        ? `<td><span style="color:#A8A296">—</span></td>`
-        : `<td${manual>0?' title="Capturado a mano en la planilla, no viene del corte"':' title="Voucher de la terminal, tomado del corte de esa semana"'}
-             style="color:${manual>0?'#B36B00':'#7A3EA1'};font-weight:700">${money0(val)}</td>`;
+      return { val: manual > 0 ? manual : corte, manual: manual > 0 };
+    };
+    let cel = '', celD = '';
+    COLS.forEach(c=>{
+      if(c.t==='w'){
+        let t = 0, dt = 0, n = 0;
+        weeks[c.i].days.forEach(d=>{
+          const r = realDe(d), cap = planN((v[d]||{}).tj);
+          t += r.val || 0;
+          if(r.val != null && cap){ dt += r.val - cap; n++; }
+        });
+        cel  += `<td class="tc">${t>0?money0(t):''}</td>`;
+        celD += `<td class="tc" style="color:${Math.abs(dt)<1?'#0B6E3F':'#C0261F'};font-weight:800">${n?(Math.abs(dt)<1?'✓':money0(dt)):''}</td>`;
+        return;
+      }
+      const r = realDe(c.d);
+      cel += r.val === null || r.val === undefined
+        ? `<td${tdCls(c)}><span style="color:#A8A296;padding:0 9px">—</span></td>`
+        : `<td${tdCls(c)}${r.manual?' title="Capturado a mano en la planilla, no viene del corte"':' title="Voucher de la terminal, tomado del corte de esa semana"'}
+             style="color:${r.manual?'#B36B00':'#7A3EA1'};font-weight:700;text-align:right;padding-right:9px">${money0(r.val)}</td>`;
+      const cap = planN((v[c.d]||{}).tj);
+      if(r.val === null || r.val === undefined || !cap){ celD += `<td${tdCls(c)}></td>`; return; }
+      const x = Math.round((r.val - cap)*100)/100;
+      celD += `<td${tdCls(c)} style="color:${Math.abs(x)<1?'#0B6E3F':'#C0261F'};font-weight:800;text-align:right;padding-right:9px">${Math.abs(x)<1?'✓':money0(x)}</td>`;
     });
-    h += `<tr class="tr"><td class="cl">TARJETA BANCARIA REAL <span style="font-weight:500;color:#7A7365">(voucher terminal)</span></td>${cel}<td class="tc">${wk>0?money0(wk):''}</td></tr>`;
-
-    /* El renglón que Rod pidió ver: lo que la terminal cobró de verdad contra
-       lo que se capturó del sistema. Solo se calcula en los días que tienen
-       las dos cosas — restar contra un día sin voucher daría un rojo falso. */
-    let difT = 0, celD = '', diasComp = 0;
-    w.days.forEach(d=>{
-      const manual = planN((v[d]||{}).tr);
-      const corte  = vouOk && plaVou[d] != null ? Number(plaVou[d]) : null;
-      const real = manual > 0 ? manual : corte;
-      const cap  = planN((v[d]||{}).tj);
-      if(real === null || real === undefined || !cap){ celD += `<td></td>`; return; }
-      const x = Math.round((real - cap)*100)/100;
-      difT += x; diasComp++;
-      celD += `<td style="color:${Math.abs(x)<1?'#0B6E3F':'#C0261F'};font-weight:800">${
-        Math.abs(x)<1 ? '✓' : money0(x)}</td>`;
-    });
-    h += `<tr><td class="cl" style="font-size:11.5px">DIFERENCIA <span style="font-weight:500;color:#7A7365">real − corte</span></td>${celD}<td class="tc" style="color:${Math.abs(difT)<1?'#0B6E3F':'#C0261F'};font-weight:800">${
-      diasComp ? (Math.abs(difT)<1?'✓':money0(difT)) : ''}</td></tr>`;
-
-    if(sinDato && !aMano)
-      h += `<tr><td class="cl" colspan="${w.days.length+2}" style="white-space:normal;font-size:11.5px;color:#7A7365;padding:5px 10px;background:#FBFAF6">
-        ${delCorte ? `${delCorte} de ${w.days.length} días con voucher del corte.` : 'Esta semana todavía no tiene voucher capturado en el corte.'}
-        Los días en gris no son diferencia de cero: es que falta el corte.</td></tr>`;
+    h += `<tr class="tr"><td class="cl">TARJETA BANCARIA REAL <span style="font-weight:500;color:#7A7365">(voucher terminal)</span></td>${cel}</tr>`;
+    h += `<tr><td class="cl" style="font-size:11.5px">DIFERENCIA <span style="font-weight:500;color:#7A7365">real − corte</span></td>${celD}</tr>`;
   }
 
-  h += filaVenta(w,'RAPPI','ra');
-  h += filaVenta(w,'MAQUILAS TETAKAWI','mq');
+  h += filaVentaMes('RAPPI','ra');
+  h += filaVentaMes('MAQUILAS TETAKAWI','mq');
 
   h += `<tr class="tot"><td class="cl">VENTA TOTAL DIARIA</td>`;
-  w.days.forEach(d=>{
-    const t = planN((v[d]||{}).ef)+planN((v[d]||{}).tj)+planN((v[d]||{}).ra)+planN((v[d]||{}).mq);
-    h += `<td>${t>0?money0(t):''}</td>`;
+  COLS.forEach(c=>{
+    if(c.t==='w'){ const t = semTot[c.i].venta; h += `<td class="tc">${t>0?money0(t):''}</td>`; return; }
+    const t = ventaDia(c.d);
+    h += `<td${tdCls(c)}>${t>0?money0(t):''}</td>`;
   });
-  h += `<td class="tc">${st.venta>0?money0(st.venta):''}</td></tr>`;
+  h += `</tr>`;
 
-  // gastos
-  h += `<tr class="sh"><td colspan="${w.days.length+2}" style="background:#175637"><b>Gastos</b></td></tr>`;
+  h += `<tr class="sh"><td colspan="${NC}" style="background:#175637"><b>Gastos</b></td></tr>`;
   cats.forEach(cat=>{
     const gc = g[cat] || {};
-    let rowT = 0, cel = '';
-    w.days.forEach(d=>{
-      rowT += planN(gc[d]);
-      const dom = planDowShort(planMonth, d)==='D' ? ' class="dom"' : '';
-      cel += `<td${dom}><input type="text" size="1" inputmode="decimal" class="nospin" data-pg="${esc(cat)}" data-pgd="${d}" value="${gc[d]||''}"></td>`;
+    let cel = '';
+    COLS.forEach(c=>{
+      if(c.t==='w'){
+        const t = weeks[c.i].days.reduce((s,d)=>s+planN(gc[d]),0);
+        cel += `<td class="tc">${t>0?money0(t):''}</td>`; return;
+      }
+      const dom = planDowShort(planMonth, c.d)==='D' ? 'dom' : '';
+      cel += `<td${tdCls(c, dom)}><input type="text" size="1" inputmode="decimal" class="nospin" data-pg="${esc(cat)}" data-pgd="${c.d}" value="${gc[c.d]||''}"></td>`;
     });
-    h += `<tr class="gas"><td class="cl">${famChip(planFamDe(cat))}${esc(cat)}</td>${cel}<td class="tc">${rowT>0?money0(rowT):''}</td></tr>`;
+    h += `<tr class="gas"><td class="cl">${famChip(planFamDe(cat))}${esc(cat)}</td>${cel}</tr>`;
   });
 
   h += `<tr class="tot"><td class="cl">TOTAL DE GASTOS</td>`;
-  w.days.forEach(d=>{
-    const t = cats.reduce((s,c)=>s+planN((g[c]||{})[d]), 0);
-    h += `<td>${t>0?money0(t):''}</td>`;
+  COLS.forEach(c=>{
+    if(c.t==='w'){ const t = semTot[c.i].gasto; h += `<td class="tc">${t>0?money0(t):''}</td>`; return; }
+    const t = cats.reduce((s,k)=>s+planN((g[k]||{})[c.d]), 0);
+    h += `<td${tdCls(c)}>${t>0?money0(t):''}</td>`;
   });
-  h += `<td class="tc">${st.gasto>0?money0(st.gasto):''}</td></tr>`;
+  h += `</tr>`;
   h += `</tbody></table></div></div>`;
 
   if(typeof pvPanel === 'function') h += pvPanel(w);
@@ -1971,18 +2008,16 @@ function instalaDeslizarSemana(){
     if(Math.abs(dx) < 70 || Math.abs(dx) < Math.abs(dy)*1.4) return;
     /* Solo desde la orilla: si la tabla todavía tiene columnas que mostrar de
        ese lado, el gesto le pertenece a ella. */
-    if(dx < 0 && max0 > 2 && izq0 < max0 - 2) return;   // faltan columnas a la derecha
-    if(dx > 0 && izq0 > 2) return;                       // faltan columnas a la izquierda
-    planSem = planSem + (dx < 0 ? 1 : -1);
-    render();
+    /* Ya no hace falta: el mes entero vive en una sola tabla que se desliza. */
+    return;
   }, {passive:true});
 
   /* Con teclado: las flechas dentro de una casilla mueven el cursor, así que
      el cambio de semana va con Alt. */
   M.addEventListener('keydown', e=>{
     if(!e.altKey) return;
-    if(e.key==='ArrowRight'){ planSem++; render(); }
-    else if(e.key==='ArrowLeft'){ planSem--; render(); }
+    if(e.key==='ArrowRight'){ planSem++; planIrA=planSem; render(); }
+    else if(e.key==='ArrowLeft'){ planSem=Math.max(0,planSem-1); planIrA=planSem; render(); }
   });
 }
 
@@ -2057,9 +2092,38 @@ async function wirePlan(){
     planTodos=b.dataset.planall==='1';render();
   }));
   document.querySelectorAll('[data-plansem]').forEach(b=>b.addEventListener('click',()=>{
-    planSem=Number(b.dataset.plansem);render();
+    planSem=Number(b.dataset.plansem); planIrA=planSem; render();
   }));
   instalaDeslizarSemana();
+  /* El mes es una sola tabla que se desliza. Al repintar se respeta dónde
+     estaba el usuario; las fichas llevan a su semana; y al deslizar con el
+     dedo la ficha de la semana visible se enciende sola. */
+  {
+    const sc = document.getElementById('wkScroll');
+    if(sc){
+      const inicioDe = i => {
+        const th = sc.querySelector(`th[data-wkstart="${i}"]`);
+        const cl = sc.querySelector('thead th.cl');
+        return th ? Math.max(0, th.offsetLeft - (cl ? cl.offsetWidth : 0)) : 0;
+      };
+      const prev = sc.style.scrollBehavior; sc.style.scrollBehavior = 'auto';
+      if(planIrA !== null){ sc.scrollLeft = inicioDe(planSem); planIrA = null; }
+      else if(planScrollX && planScrollX.m === planMonth) sc.scrollLeft = planScrollX.x;
+      else sc.scrollLeft = inicioDe(planSem || 0);
+      sc.style.scrollBehavior = prev;
+      planScrollX = { m: planMonth, x: sc.scrollLeft };
+      const ths = [...sc.querySelectorAll('th[data-wkstart]')];
+      sc.addEventListener('scroll', ()=>{
+        planScrollX = { m: planMonth, x: sc.scrollLeft };
+        let i = 0;
+        ths.forEach(th => { if(inicioDe(Number(th.dataset.wkstart)) <= sc.scrollLeft + 40) i = Number(th.dataset.wkstart); });
+        if(i !== planSem){
+          planSem = i;
+          document.querySelectorAll('.wkchip').forEach((c,k)=>c.classList.toggle('on', k===i));
+        }
+      }, {passive:true});
+    }
+  }
   if(planTab==='conc' && typeof wireConc==='function') wireConc();
   if(planTab==='tarj' && typeof wireTarj==='function') wireTarj();
   if(planTab==='main' && typeof wirePv==='function'){
