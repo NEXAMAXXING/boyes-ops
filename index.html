@@ -1774,7 +1774,7 @@ function planViewMain(){
       <div class="wk-h">${nomMes.toUpperCase()}
         <span class="sub">desliza de lado · estira columnas con el mouse en los encabezados</span>
         <span class="tot">${mesVenta>0?money(mesVenta):'—'}</span></div>
-      <div class="wk-sc" id="wkScroll"><table class="pt" style="width:${anchoTabla}px;min-width:${anchoTabla}px">
+      <div class="wk-sc" id="wkScroll"><table class="pt" style="width:max(${anchoTabla}px,100%);min-width:${anchoTabla}px;table-layout:fixed">
         <colgroup><col data-an="cl" style="width:${ANCHO_CL}px">${COLS.map(c=>`<col data-an="${c.t==='d'?'d':'t'}" style="width:${c.t==='d'?ANCHO_D:ANCHO_T}px">`).join('')}</colgroup>
         <thead><tr>
         <th class="cl" style="position:relative">CONCEPTO<i class="rz" data-rz="cl" title="Arrastra para hacer más ancho · doble clic: normal"></i></th>`;
@@ -2170,7 +2170,7 @@ async function wirePlan(){
       const anAplica = a => {
         let tot = 0;
         tbl.querySelectorAll('col[data-an]').forEach(c => { const w = a[c.dataset.an]; c.style.width = w+'px'; tot += w; });
-        tbl.style.width = tbl.style.minWidth = tot+'px';
+        tbl.style.width = `max(${tot}px,100%)`; tbl.style.minWidth = tot+'px';
       };
       sc.querySelectorAll('th .rz').forEach(h => {
         h.addEventListener('dblclick', e => { e.preventDefault(); e.stopPropagation(); AN = {...AN_DEF}; anAplica(AN); anGuarda(AN); });
