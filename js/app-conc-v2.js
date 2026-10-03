@@ -235,12 +235,40 @@ function concCandidatos(mov, casillas){
   return cand.sort((a,b)=>puntos(a)-puntos(b));
 }
 
-function concEstadoDe(mov, casillas){
+/* Reparto: cada casilla se le propone a UN solo movimiento. Si dos cargos
+   del banco del mismo monto compiten por la misma casilla, se la queda el que
+   mejor coincide (fecha y nombre) y el otro va a "no encontrados" desde el
+   principio — así confirmar uno nunca cambia de estado a otro. */
+let concRecientes = new Set();   // confirmados en esta sesión: se quedan a la vista
+function concReparte(pagos, casillas){
+  const pares = [];
+  for(const mov of pagos){
+    if(['comision','traspaso','rendimiento','deposito_tarjeta'].includes(mov.clase) || mov.tipo==='abono') continue;
+    if(concIgnorado(mov) || casillas.some(c => c.usada && c.usada.mov === mov.id)) continue;
+    concCandidatos(mov, casillas).forEach((c, i) => pares.push({mov, c, i, aprox: !!c.aprox}));
+  }
+  pares.sort((a,b) => (a.aprox-b.aprox) || (a.i-b.i));
+  const tomada = new Set(), deMov = new Map(), compite = new Map();
+  for(const {mov, c} of pares){
+    if(tomada.has(c.clave+'@'+c.ym)){ if(!deMov.has(mov.id)) compite.set(mov.id, c); continue; }
+    if(deMov.has(mov.id)) continue;
+    tomada.add(c.clave+'@'+c.ym); deMov.set(mov.id, [c]);
+  }
+  /* Alternativas: solo casillas que nadie más tiene asignadas. */
+  for(const {mov, c} of pares){
+    const l = deMov.get(mov.id); if(!l) continue;
+    if(!tomada.has(c.clave+'@'+c.ym) && !l.some(x=>x.clave===c.clave && x.ym===c.ym)) l.push(c);
+  }
+  return {deMov, compite};
+}
+
+function concEstadoDe(mov, casillas, rep){
   if(['comision','traspaso','rendimiento','deposito_tarjeta'].includes(mov.clase)) return 'aparte';
   if(mov.tipo === 'abono') return 'aparte';
   if(concIgnorado(mov)) return 'ignorado';
   const yaUsada = casillas.find(c => c.usada && c.usada.mov === mov.id);
   if(yaUsada) return 'confirmado';
+  if(rep) return rep.deMov.has(mov.id) ? 'propuesto' : 'sin_apunte';
   return concCandidatos(mov, casillas).length ? 'propuesto' : 'sin_apunte';
 }
 
@@ -383,6 +411,7 @@ async function concConfirma(movId, clave, ym){
   P.formato._conc[clave] = {mov: movId, fecha_banco: mov?.fecha, monto: mov?.monto,
                             por: user.name, cuando: new Date().toISOString()};
   P.formato[clave] = { ...(P.formato[clave]||{}), bg: CONC_COLOR };
+  concRecientes.add(movId);
   if(clave.startsWith('g|') && mov){
     const [, cat, d] = clave.split('|');
     const cap = planN((P.gastos_var?.[cat]||{})[d]);
@@ -493,7 +522,8 @@ function concChip(estado){
     confirmado : ['✓ Confirmado', '#0B6E3F', '#DFF3E7'],
     propuesto  : ['Por confirmar', '#8A5A00', '#FFF3D0'],
     sin_apunte : ['Sin apunte', '#C0261F', '#FFE4E1'],
-    aparte     : ['Va aparte', '#5B6472', '#EDEDED']
+    aparte     : ['Va aparte', '#5B6472', '#EDEDED'],
+    ignorado   : ['No va', '#5B6472', '#EDEDED']
   };
   const [t,c,b] = M[estado] || M.aparte;
   return `<span class="conc-chip" style="color:${c};background:${b}">${t}</span>`;
@@ -508,6 +538,7 @@ function concView(){
                letter-spacing:.02em;white-space:nowrap}
     .conc-mov{border:1px solid #E1DCD0;border-radius:11px;padding:11px 13px;margin-bottom:8px;background:var(--card)}
     .conc-mov.sin{border-left:4px solid #C0261F}
+    .conc-sec{display:flex;flex-direction:column;gap:2px;margin:16px 0 8px;padding-bottom:6px;border-bottom:2px solid #E1DCD0;font-size:14px}
     .conc-mov.ign{border-left:4px solid #8A8F98;opacity:.8}
     .conc-opc{display:flex;flex-direction:column;gap:6px;margin-top:8px}
     .conc-o{display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:12.5px;padding:7px 9px;border:1px dashed #E1DCD0;border-radius:8px}
@@ -579,7 +610,8 @@ function concView(){
 
   const casillas = concCasillas();
   const pagos = concEdo.movs.filter(m=>m.tipo==='cargo' && m.clase==='pago');
-  const estados = pagos.map(m=>({mov:m, estado:concEstadoDe(m, casillas)}));
+  const rep = concReparte(pagos, casillas);
+  const estados = pagos.map(m=>({mov:m, estado:concEstadoDe(m, casillas, rep)}));
   const nOk   = estados.filter(x=>x.estado==='confirmado').length;
   const nProp = estados.filter(x=>x.estado==='propuesto').length;
   const nSin  = estados.filter(x=>x.estado==='sin_apunte').length;
@@ -602,14 +634,26 @@ function concView(){
         </select></label>
     </div>`;
 
-  const visibles = estados.filter(({estado})=>
-      concFiltro==='todos' ? true :
-      concFiltro==='ok'    ? estado==='confirmado' :
-      concFiltro==='sin'   ? estado==='sin_apunte' :
-                             estado!=='confirmado');
+  /* "Por revisar" se parte en secciones fijas: primero lo que sí encontré
+     (para confirmar de corrido), luego lo que no encontré. Lo que confirmas
+     se queda en su lugar, en verde, para que la lista no se recorra. */
+  const enSec = (sec) => estados.filter(({mov, estado}) =>
+      sec==='match' ? (estado==='propuesto' || (estado==='confirmado' && concRecientes.has(mov.id))) :
+      sec==='sin'   ? estado==='sin_apunte' :
+      sec==='ign'   ? estado==='ignorado' :
+      sec==='ok'    ? estado==='confirmado' : true);
+  const secciones = concFiltro==='pendientes'
+    ? [['match','✅ Encontré la casilla — por confirmar', 'Revisa y confirma. Al confirmar se queda aquí en verde.'],
+       ['sin','❓ No los encontré en la planilla', 'Ninguna casilla libre con ese monto. Elige qué es cada uno.'],
+       ['ign','🚫 Marcados como "no va en la planilla"', '']]
+    : [[concFiltro==='ok'?'ok':concFiltro==='sin'?'sin':'todos', '', '']];
 
-  if(!visibles.length) h += `<p class="hint">Nada en este filtro.</p>`;
-
+  let hay = false;
+  for(const [sec, titulo, ayuda] of secciones){
+  const visibles = enSec(sec);
+  if(!visibles.length) continue;
+  hay = true;
+  if(titulo) h += `<div class="conc-sec"><b>${titulo} · ${visibles.length}</b>${ayuda?`<span class="hint">${ayuda}</span>`:''}</div>`;
   for(const {mov, estado} of visibles){
     const cls = estado==='confirmado'?'ok':(estado==='sin_apunte'?'sin':(estado==='ignorado'?'ign':'prop'));
     h += `<div class="conc-mov ${cls}">
@@ -628,7 +672,7 @@ function concView(){
         <button class="btn-quiet" data-concdes="${esc(c.clave)}" data-concym="${c.ym}"
                 style="margin-left:auto">Deshacer</button></div>`;
     } else if(estado==='propuesto'){
-      const cand = concCandidatos(mov, casillas);
+      const cand = rep.deMov.get(mov.id) || [];
       h += `<div class="conc-cand">
         <select data-conccand="${esc(mov.id)}">
           ${cand.slice(0,25).map((c,i)=>`<option value="${esc(c.ym)}|${esc(c.clave)}"${i?'':' selected'}>
@@ -651,9 +695,11 @@ function concView(){
       const sug = cats.find(c => c.split(/[^A-ZÑ]+/i).filter(x=>x.length>3)
         .some(x => (mov.beneficiario+' '+mov.concepto).toUpperCase().includes(x.toUpperCase()))) || '';
       const mid = esc(mov.id);
+      const comp = rep.compite.get(mov.id);
       h += `<div class="conc-cand" style="background:#FFF1EF">
-        <span style="font-size:12.5px">No hay ninguna casilla de ese monto sin usar en ±${concVentana} días.
-        O no está capturado, o el monto no coincide. ¿Qué es?</span></div>
+        <span style="font-size:12.5px">${comp
+          ? `Hay una casilla de este monto (${esc(concEtiqueta(comp, mov))}), pero le corresponde mejor a otro cargo del banco igual. Parece que falta capturar uno de los dos.`
+          : `No hay ninguna casilla de ese monto sin usar en ±${concVentana} días. O no está capturado, o el monto no coincide.`} ¿Qué es?</span></div>
       <div class="conc-opc">
         <div class="conc-o"><b>🔒 Es gasto fijo</b>
           <select data-cfnom="${mid}">${fijos.map(f=>`<option>${esc(f)}</option>`).join('')}</select>
@@ -674,6 +720,8 @@ function concView(){
     }
     h += `</div>`;
   }
+  }
+  if(!hay) h += `<p class="hint">Nada en este filtro.</p>`;
   h += `</div>`;
 
   /* ---- terminal ---- */
