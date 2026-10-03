@@ -981,6 +981,13 @@ async function concConfirma(movId, clave, ym, nota){
   if(clave.startsWith('f|') && mov){
     const nom0 = clave.slice(2, clave.lastIndexOf('|'));
     const m0 = planN((P.gastos_fijos?.[nom0]||{}).monto);
+    /* Monto parecido (Karen puso 7,052 y el banco dice 7,052.80): se deja el del banco. */
+    if(m0 && Math.abs(m0 - mov.monto) >= 0.01 && Math.abs(m0 - mov.monto) <= Math.max(5, mov.monto*0.005)){
+      P.gastos_fijos[nom0] = { ...(P.gastos_fijos[nom0]||{}), monto: mov.monto };
+      concPend[ym] = concPend[ym] || {}; concPend[ym].gf = concPend[ym].gf || {};
+      concPend[ym].gf[nom0] = { ...(concPend[ym].gf[nom0]||{}), monto: mov.monto };
+      P.formato._conc[clave].antes = m0;
+    }
     if(CONC_COMPARTIDOS[nom0] && Math.abs(m0*2 - mov.monto) < 0.05){
       const ab = concAbonoOtra(mov, m0);
       P.formato._conc[clave].compartido = {total: mov.monto, mitad: m0, abono: ab ? ab.id : null, abono_fecha: ab ? ab.fecha : null};
@@ -1328,7 +1335,9 @@ function concView(){
           : K ? `Va en <b>${esc(K)}</b>, pero no hay casilla libre de ese monto.`
               : `No encontré casilla de ese monto.`}</span></div>
       <div class="conc-rap">
-        ${sug ? `<button class="btn-primary" data-crapcap="${mid}" data-crapcat="${esc(sug)}">✏️ Capturar en ${esc(sug)} · ${esc(mov.fecha.slice(8,10))} ${CONC_MESES[Number(mov.fecha.slice(5,7))].slice(0,3)}</button>` : ''}
+        ${(() => { const Kf = concProveedor(mov); const ymF = concNotaMes(mov) || mov.fecha.slice(0,7);
+            return (Kf && fijos.includes(Kf) && concMeses[ymF]) ? `<button class="btn-primary" data-cfok="${mid}" data-cfnom2="${esc(Kf)}" data-cfym2="${ymF}">🔒 Es ${esc(Kf)} · ${concNomMes(ymF)} (gasto fijo)</button>` : ''; })()}
+        ${sug && !(concProveedor(mov) && fijos.includes(concProveedor(mov))) ? `<button class="btn-primary" data-crapcap="${mid}" data-crapcat="${esc(sug)}">✏️ Capturar en ${esc(sug)} · ${esc(mov.fecha.slice(8,10))} ${CONC_MESES[Number(mov.fecha.slice(5,7))].slice(0,3)}</button>` : ''}
         <button class="${sug?'btn-quiet':'btn-primary'}" data-cpok="${mid}">⏸ Pendiente</button>
         <button class="btn-quiet conc-masbtn" data-cmas="${mid}">Más opciones ▾</button>
       </div>
@@ -1520,7 +1529,9 @@ function wireConc(){
     const id = b.dataset.cmvok, [ym, ...r] = _v('data-cmvsel', id).split('|');
     concMueve(id, ym, r.join('|'), b.dataset.cmvcat); }));
   document.querySelectorAll('[data-cfok]').forEach(b=>b.addEventListener('click', ()=>{
-    const id = b.dataset.cfok; concAFijo(id, _v('data-cfnom', id), _v('data-cfym', id)); }));
+    const id = b.dataset.cfok;
+    if(b.dataset.cfnom2) concAFijo(id, b.dataset.cfnom2, b.dataset.cfym2);
+    else concAFijo(id, _v('data-cfnom', id), _v('data-cfym', id)); }));
   document.querySelectorAll('[data-ccok]').forEach(b=>b.addEventListener('click', ()=>{
     const id = b.dataset.ccok, cat = _v('data-ccat', id);
     if(!cat){ toast('Elige el concepto'); return; }
