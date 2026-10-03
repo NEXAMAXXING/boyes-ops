@@ -167,7 +167,10 @@ function concCasillas(){
         out.push({
           ym, cat, dia: Number(d), monto, clave,
           fecha: `${ym}-${String(d).padStart(2,'0')}`,
-          usada: conc[clave] || null
+          /* Naranja = Rod ya la verificó contra un estado de cuenta anterior
+             (así venía del Excel). Esa cantidad ya se usó: no se vuelve a ofrecer. */
+          usada: conc[clave] || (String((P.formato||{})[clave]?.bg||'').toUpperCase()===CONC_COLOR
+                   ? {mov:'excel', por:'Excel (naranja)'} : null)
         });
       }
     }
@@ -253,12 +256,20 @@ async function concGuarda(ym){
     formato: P.formato||{},
     created_by: user.name, updated_at: new Date().toISOString()
   }, {onConflict:'location_id,year_month'});
-  /* Si el mes que se tocó es el que está abierto en la Planilla, se refresca
-     para que el azul aparezca ahí también sin recargar. */
-  if(ym === planMonth) planData = null;
+  /* Si el mes que se tocó es el que está abierto en la Planilla, se le pasa
+     el formato nuevo en sitio. Antes se tiraba planData y eso recargaba toda
+     la pantalla y la mandaba hasta arriba en cada clic. */
+  if(ym === planMonth && planData && planData.location_id === finLoc){
+    planData.formato = JSON.parse(JSON.stringify(P.formato||{}));
+    if(planEdit) planEdit.formato = JSON.parse(JSON.stringify(P.formato||{}));
+  }
 }
 
-const CONC_AZUL = '#CFE3FB';   // el azul de Rod: "ya lo verifiqué yo"
+/* El color de "ya lo verifiqué yo" es el naranja del Excel de Rod, para que
+   la app y el Excel hablen el mismo idioma. El azul viejo se sigue
+   reconociendo para poder deshacer lo que se confirmó antes. */
+const CONC_COLOR = '#FF9900';
+const CONC_AZUL_VIEJO = '#CFE3FB';
 
 async function concConfirma(movId, clave, ym){
   const P = concMeses[ym]; if(!P) return;
@@ -267,10 +278,11 @@ async function concConfirma(movId, clave, ym){
   const mov = concEdo.movs.find(m=>m.id===movId);
   P.formato._conc[clave] = {mov: movId, fecha_banco: mov?.fecha, monto: mov?.monto,
                             por: user.name, cuando: new Date().toISOString()};
-  P.formato[clave] = { ...(P.formato[clave]||{}), bg: CONC_AZUL };
-  await concGuarda(ym);
-  toast('Confirmado — la casilla quedó en azul');
+  P.formato[clave] = { ...(P.formato[clave]||{}), bg: CONC_COLOR };
+  /* Primero se pinta (al instante, sin moverse de lugar) y luego se guarda. */
   render();
+  toast('Confirmado — la casilla quedó en naranja');
+  try{ await concGuarda(ym); }catch(e){ toast('No se pudo guardar — revisa tu conexión'); }
 }
 
 async function concDeshace(clave, ym){
@@ -278,12 +290,12 @@ async function concDeshace(clave, ym){
   if(P.formato?._conc) delete P.formato._conc[clave];
   /* Se quita el azul, pero solo si es el azul de la conciliación: si Rod le
      puso otro color a mano, ese se respeta. */
-  if(P.formato?.[clave]?.bg === CONC_AZUL){
+  if([CONC_COLOR, CONC_AZUL_VIEJO].includes(String(P.formato?.[clave]?.bg||'').toUpperCase())){
     delete P.formato[clave].bg;
     if(!Object.keys(P.formato[clave]).length) delete P.formato[clave];
   }
-  await concGuarda(ym);
   render();
+  try{ await concGuarda(ym); }catch(e){ toast('No se pudo guardar — revisa tu conexión'); }
 }
 
 /* ---------- 4. depósitos de terminal ---------- */
@@ -393,7 +405,7 @@ function concView(){
       <p class="hint" style="margin:4px 0 14px">Arrastra aquí el PDF del banco. Busco cada cargo dentro de lo que
       capturó Karen en la planilla —por monto, no por fecha, porque ella apunta el día del consumo y el banco
       el día del pago— y te digo cuál encontró, cuál no está capturado y cuánto cobró el banco de comisión.
-      Lo que tú confirmes se pinta de azul y esa casilla ya no se vuelve a usar para otro movimiento.</p>
+      Lo que tú confirmes se pinta de naranja (como en tu Excel) y esa casilla ya no se vuelve a usar para otro movimiento.</p>
       <div class="conc-drop" id="concDrop">
         <div style="font-size:30px;line-height:1">📄</div>
         <div style="font-weight:800;margin-top:6px">Suelta aquí el estado de cuenta</div>
