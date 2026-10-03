@@ -702,35 +702,35 @@ function concCuadreHTML(estados, casillas){
 }
 
 /* ---------- LISTA INVERSA: de la planilla al banco ----------
-   Casillas de gasto del mes del estado que NINGÚN cargo del banco explica.
-   Normal si se pagaron en efectivo; si no, es una captura de más o un error.
-   Las naranjas del Excel cuentan como ya verificadas. */
+   Casillas de gasto del mes del estado que NINGÚN cargo de este estado explica.
+   - En rosa: Karen dijo que la vio en el banco, así que NO fue efectivo. Si
+     aquí no aparece, salió en otro estado de cuenta (mes siguiente/anterior)
+     o el monto no coincide: esas son las que hay que revisar.
+   - Sin marca: Karen no la encontró en el banco → se pagó en efectivo. Solo
+     se resume. Las naranjas ya están verificadas y las propuestas se explican
+     al confirmar, así que ninguna de las dos se lista. */
 function concInversaHTML(casillas, rep){
-  /* Las que ya están propuestas a un cargo no se listan: se explican al confirmar. */
   const prop = new Set();
   if(rep) for(const l of rep.deMov.values()) l.forEach(c => prop.add(c.clave+'@'+c.ym));
-  const lista = casillas.filter(c => !c.fijo && c.ym === concMes && !c.usada && !prop.has(c.clave+'@'+c.ym))
-    .filter(c => !(((concMeses[c.ym]||{}).formato||{})[c.clave]||{}).efectivo)
+  const sueltas = casillas.filter(c => !c.fijo && c.ym === concMes && !c.usada && !prop.has(c.clave+'@'+c.ym))
     .sort((a,b) => a.dia-b.dia || b.monto-a.monto);
-  const efe = casillas.filter(c => !c.fijo && c.ym === concMes && (((concMeses[c.ym]||{}).formato||{})[c.clave]||{}).efectivo);
-  const tot = lista.reduce((s,c)=>s+c.monto,0), totE = efe.reduce((s,c)=>s+c.monto,0);
+  const rosas = sueltas.filter(c => c.karen), efe = sueltas.filter(c => !c.karen);
+  const tR = rosas.reduce((s,c)=>s+c.monto,0), tE = efe.reduce((s,c)=>s+c.monto,0);
   const dow = c => ['D','L','M','M','J','V','S'][new Date(c.fecha+'T12:00:00').getDay()];
+  const tabla = (l, tot, rot) => `<div class="res-wrap"><table class="res" style="font-size:12.5px;min-width:0"><thead><tr>
+      <th style="text-align:left">Día</th><th style="text-align:left">Concepto</th><th>Monto</th></tr></thead><tbody>
+    ${l.map(c => `<tr><td style="text-align:left">${dow(c)} ${c.dia}</td><td style="text-align:left">${esc(c.cat)}</td>
+      <td style="font-weight:700">${money(c.monto)}</td></tr>`).join('')}
+    <tr style="font-weight:900;background:#F6F4EE"><td></td><td style="text-align:left">${rot}</td><td>${money(Math.round(tot*100)/100)}</td></tr>
+  </tbody></table></div>`;
   return `<div class="panel"><div class="d-h3">De la planilla al banco · ${concNomMes(concMes)}</div>
-    <p class="hint" style="margin:0 0 8px">Gastos capturados en la planilla de este mes que ningún cargo del banco explica.
-      Si se pagaron en efectivo, márcalos 💵 y salen de la lista. Lo que quede es captura de más, error, o algo que se pagó en el estado del mes siguiente.</p>
-    ${lista.length ? `<div class="res-wrap"><table class="res" style="font-size:12.5px;min-width:0"><thead><tr>
-        <th style="text-align:left">Día</th><th style="text-align:left">Concepto</th><th>Monto</th><th>Marca</th><th></th></tr></thead><tbody>
-      ${lista.map(c => `<tr>
-        <td style="text-align:left">${dow(c)} ${c.dia}</td>
-        <td style="text-align:left">${esc(c.cat)}</td>
-        <td style="font-weight:700">${money(c.monto)}</td>
-        <td>${c.karen ? '🟪 Karen' : '—'}</td>
-        <td><button class="btn-quiet" style="padding:4px 10px;min-height:0;font-size:12px" data-cefe="${esc(c.ym)}|${esc(c.clave)}">💵 Efectivo</button></td></tr>`).join('')}
-      <tr style="font-weight:900;background:#F6F4EE"><td></td><td style="text-align:left">Total sin cargo en el banco</td><td>${money(Math.round(tot*100)/100)}</td><td></td><td></td></tr>
-    </tbody></table></div>` : `<p style="margin:0;font-weight:800;color:#0B6E3F">✓ Todo lo capturado este mes está explicado por el banco o marcado como efectivo.</p>`}
-    ${efe.length ? `<p class="hint" style="margin:8px 0 0">💵 Marcados como efectivo: ${efe.length} · ${money(Math.round(totE*100)/100)}
-      <button class="btn-quiet" style="padding:3px 9px;min-height:0;font-size:11.5px" id="concVerEfe">ver / quitar</button></p>
-      <div id="concEfeBox" hidden style="font-size:12px">${efe.map(c=>`${c.dia} · ${esc(c.cat)} · ${money(c.monto)} <a href="#" data-cefeq="${esc(c.ym)}|${esc(c.clave)}">quitar</a>`).join('<br>')}</div>` : ''}
+    ${rosas.length ? `<p style="margin:0 0 6px;font-weight:800;color:#8A5A00">🟪 Karen las marcó como del banco, pero no salen en este estado de cuenta · ${rosas.length} · ${money(Math.round(tR*100)/100)}</p>
+      <p class="hint" style="margin:0 0 8px">No fueron efectivo. O salieron en el estado del mes siguiente (o anterior), o el monto que capturó no es el del banco. Revísalas al cargar ese otro estado.</p>
+      ${tabla(rosas, tR, 'Total por revisar')}`
+      : `<p style="margin:0 0 6px;font-weight:800;color:#0B6E3F">✓ Todo lo que Karen marcó del banco está explicado.</p>`}
+    <p style="margin:12px 0 0">💵 <b>Efectivo</b> (sin marca de Karen, no pasó por el banco): ${efe.length} gasto${efe.length===1?'':'s'} · <b>${money(Math.round(tE*100)/100)}</b>
+      ${efe.length ? `<button class="btn-quiet" style="padding:3px 9px;min-height:0;font-size:11.5px" id="concVerEfe">ver</button>` : ''}</p>
+    ${efe.length ? `<div id="concEfeBox" hidden style="margin-top:6px">${tabla(efe, tE, 'Total en efectivo')}</div>` : ''}
   </div>`;
 }
 async function concEfectivo(ym, clave, si){
