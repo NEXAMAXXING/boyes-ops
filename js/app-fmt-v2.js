@@ -24,6 +24,10 @@ function fmtClave(inp){
 /* Colores con nombre. El primero de cada lista es "quitar". */
 const FMT_RELLENO = [
   ['', 'Sin relleno'],
+  /* Las dos marcas de la conciliación, con el color exacto del Excel:
+     rosa = Karen ya la encontró en el estado de cuenta;
+     naranja = Rod la verificó y ya quedó usada. */
+  ['#FF00FF','Rosa · marcada por Karen'], ['#FF9900','Naranja · verificada por Rod'],
   ['#FFF3B0','Amarillo'], ['#FFD5CC','Rojo claro'], ['#CDEBD6','Verde'],
   ['#CFE3FB','Azul'],     ['#EBD8F7','Morado'],     ['#FFE0B8','Naranja'],
   ['#E4E4E4','Gris'],     ['#FFFFFF','Blanco']
@@ -67,7 +71,8 @@ function fmtPinta(){
     const k = fmtClave(inp); if(!k) return;
     const f = fmtDe(k), td = inp.closest('td');
     if(!td) return;
-    td.style.background = f.bg || '';
+    /* !important para que la marca gane también sobre el rojo del domingo. */
+    if(f.bg) td.style.setProperty('background', f.bg, 'important'); else td.style.removeProperty('background');
     inp.style.color      = f.fg || '';
     inp.style.fontWeight = f.b ? '800' : '';
     inp.style.fontStyle  = f.i ? 'italic' : '';
