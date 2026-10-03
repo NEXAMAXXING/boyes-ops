@@ -907,6 +907,36 @@ async function concAdminAnota(monto){
   try{ await concGuarda(ym); }catch(e){ toast('No se pudo guardar — revisa tu conexión'); }
 }
 
+/* ---------- Entre sucursales ----------
+   Todo traspaso entre la cuenta de San Carlos (…3021) y la de Guaymas (…5991),
+   con lo que lo explica: la mitad de un gasto compartido (IMSS, "3%") o el
+   reembolso de algo que una pagó por la otra (Coca de Guaymas pagada desde SC). */
+function concEntreSucursales(){
+  if(!concEdo) return [];
+  const otra = CONC_OTRA[finLoc], otraN = (LOCS[otra]||'').replace(/^Boye's\s*/,'');
+  const usados = new Set();
+  return concEdo.movs.filter(m => m.cuenta && CONC_CUENTAS[m.cuenta.ult4] === otra).map(m => {
+    let exp = '';
+    if(m.tipo === 'abono'){
+      /* Entró dinero de la otra: ¿qué pagamos nosotros que esto cubre? */
+      const cerca = concEdo.movs.filter(x => x.tipo==='cargo' && x.clase==='pago' && !usados.has(x.id) && concDias(x.fecha, m.fecha) <= 7)
+        .sort((a,b) => concDias(a.fecha, m.fecha) - concDias(b.fecha, m.fecha));
+      const doble = cerca.find(x => Math.abs(x.monto - 2*m.monto) < 0.05);
+      const igual = cerca.find(x => Math.abs(x.monto - m.monto) < 0.05 && concNotaSucursal(x) === otra);
+      if(doble || igual) usados.add((doble || igual).id);
+      if(doble) exp = `Su mitad de ${money(doble.monto)} — ${esc(doble.beneficiario || doble.concepto)}${doble.nota?` "${esc(doble.nota)}"`:''} (${esc(doble.fecha)}). Gasto compartido 50/50.`;
+      else if(igual) exp = `Reembolso de ${esc(igual.beneficiario || igual.concepto)}${igual.nota?` "${esc(igual.nota)}"`:''} (${esc(igual.fecha)}), que se pagó desde aquí por ${otraN}.`;
+      else exp = `No encontré en este estado qué cubre. Pregúntale a Karen.`;
+    } else {
+      /* Salió dinero hacia la otra: casi siempre es nuestra mitad de un gasto
+         compartido o devolverle algo que pagó por nosotros. Se concilia arriba
+         contra la planilla como cualquier pago. */
+      exp = `Pago a ${otraN}. Se concilia arriba contra la planilla (mitad de IMSS / 3%, o reembolso de algo que ${otraN} pagó por esta sucursal).`;
+    }
+    return { m, entra: m.tipo === 'abono', exp };
+  });
+}
+
 /* "Mover de renglón": Karen lo apuntó en otro concepto. Se quita de ahí y se
    pone en el concepto del proveedor, mismo día, ya con el monto del banco. */
 async function concMueve(movId, ym, claveVieja, catNueva){
@@ -1390,6 +1420,24 @@ function concView(){
         ${com.dec && Math.abs(com.dec - com.suma) > 0.5 ? `<br>Sumé ${money(com.suma)} en cargos de comisión; el banco declara ${money(com.dec)}. Se usa lo que declara el banco.` : ''}</p>
       ${ok ? `<p style="margin:0;font-weight:700;color:#0B6E3F">✓ Ya está en la planilla y en naranja.</p>`
            : `<button class="btn-primary" data-ccom="${com.monto}">Anotar ${money(com.monto)} en COMISIONES BANCARIAS de ${concNomMes(concMes)}</button>`}
+    </div>`;
+  }
+
+  /* ---- entre sucursales ---- */
+  const ent = concEntreSucursales();
+  {
+    const otraN = (LOCS[CONC_OTRA[finLoc]]||'').replace(/^Boye's\s*/,'');
+    const tE = ent.filter(x=>x.entra).reduce((s,x)=>s+x.m.monto,0), tS = ent.filter(x=>!x.entra).reduce((s,x)=>s+x.m.monto,0);
+    h += `<div class="panel"><div class="d-h3">↔️ Entre sucursales · ${concNomMes(concMes)}</div>
+      <p class="hint" style="margin:0 0 8px">Traspasos entre la cuenta de San Carlos (…3021) y la de Guaymas (…5991).
+        Entró de ${otraN}: <b>${money(Math.round(tE*100)/100)}</b> · Salió a ${otraN}: <b>${money(Math.round(tS*100)/100)}</b></p>
+      ${ent.length ? `<div class="res-wrap"><table class="res" style="font-size:12.5px;min-width:0"><thead><tr>
+          <th style="text-align:left">Fecha</th><th style="text-align:left">Dirección</th><th>Monto</th><th style="text-align:left">Qué es</th></tr></thead><tbody>
+        ${ent.map(x => `<tr><td style="text-align:left">${esc(x.m.fecha)}</td>
+          <td style="text-align:left">${x.entra ? `⬅️ de ${otraN}` : `➡️ a ${otraN}`}</td>
+          <td style="font-weight:700">${money(x.m.monto)}</td>
+          <td style="text-align:left;white-space:normal">${x.exp}</td></tr>`).join('')}
+      </tbody></table></div>` : `<p class="hint" style="margin:0">No hubo traspasos entre sucursales este mes.</p>`}
     </div>`;
   }
 
