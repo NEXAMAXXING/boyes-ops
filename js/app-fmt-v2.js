@@ -75,7 +75,7 @@ function fmtPinta(){
   });
   fmtMarca();
   const t = M.querySelector('.pt');
-  if(t) t.style.fontSize = (13*fmtZoom/100).toFixed(1)+'px';
+  if(t && !(typeof planZoomAplica==='function' && planZoomAplica())) t.style.fontSize = (13*fmtZoom/100).toFixed(1)+'px';
 }
 
 function fmtBarra(){
@@ -143,6 +143,8 @@ function instalaFormato(){
       const prendido = fmtSel.length && fmtSel.every(k=>fmtDe(k)[p]);
       fmtAplica({ [p]: prendido ? '' : true }); return; }
     const z = e.target.closest('[data-fmt-zoom]');
+    if(z && typeof planZoomA==='function' && document.getElementById('wkScroll')){
+      planZoomA((Math.round(fmtZoom/10) + Number(z.dataset.fmtZoom))*10); return; }
     if(z){ fmtZoom = Math.max(70, Math.min(160, fmtZoom + Number(z.dataset.fmtZoom)*10));
       localStorage.setItem('boyes_pt_zoom', fmtZoom);
       const et = M.querySelector('.fmt-z'); if(et) et.textContent = fmtZoom+'%';

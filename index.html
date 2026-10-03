@@ -505,10 +505,57 @@ let corWeek=null, corData=null, corEdit=null;
 let pedData=null, pedWeek=null, pedEdit2={};
 let _pedChannel=null, _pedBroadcasting=false;
 let planData=null, planEdit={}, planMonth=null, planTab='main';
-let planTodos=false, planExtra=[], planSem=0, planIrA=null, planScrollX=null;
+let planSemNav=null, planTodos=true, planExtra=[], planSem=0, planIrA=null, planScrollX=null;
 const AN_DEF = {cl:140, d:50, t:68};
 let AN = {...AN_DEF};
 try{ AN = Object.assign({}, AN_DEF, JSON.parse(localStorage.getItem('planAncho')||'{}')); }catch(e){}
+/* Zoom de la planilla, como en Excel: botones − / +, Ctrl/⌘ + rueda (o
+   pellizco en el trackpad) y atajos "Ver 1 sem · 2 · 3 · Mes" que calculan
+   el zoom para que quepa justo eso. Se guarda en este navegador. */
+function planZ(){ return (typeof fmtZoom!=='undefined' ? fmtZoom : 100)/100; }
+function planCaja(){
+  const box = document.getElementById('wkSlide'); if(!box) return;
+  box.style.marginLeft = '0px';
+  const L = box.getBoundingClientRect().left, W = document.documentElement.clientWidth;
+  box.style.width = (W - 32) + 'px';
+  box.style.marginLeft = (16 - L) + 'px';
+}
+function planZoomAplica(){
+  const sc = document.getElementById('wkScroll'); if(!sc) return false;
+  const tbl = sc.querySelector('table.pt'); if(!tbl) return false;
+  const z = planZ();
+  tbl.style.fontSize = ''; tbl.style.zoom = z;
+  let tot = 0;
+  tbl.querySelectorAll('col[data-an]').forEach(c => { const w = AN[c.dataset.an]; c.style.width = w+'px'; tot += w; });
+  tbl._tot = tot;
+  const llena = Math.max(tot, Math.floor(sc.clientWidth / z) - 1);
+  tbl.style.width = tbl.style.minWidth = llena + 'px';
+  document.querySelectorAll('.fmt-z').forEach(et => et.textContent = Math.round(z*100)+'%');
+  return true;
+}
+function planInicioDe(i){
+  const sc = document.getElementById('wkScroll'); if(!sc) return 0;
+  const th = sc.querySelector(`th[data-wkstart="${i}"]`), cl = sc.querySelector('thead th.cl');
+  if(!th) return 0;
+  const r0 = sc.querySelector('table.pt').getBoundingClientRect().left;
+  return Math.max(0, Math.round(th.getBoundingClientRect().left - r0 - (cl ? cl.getBoundingClientRect().width : 0)));
+}
+function planZoomA(pct, ancla){
+  const sc = document.getElementById('wkScroll');
+  const rel = sc && sc.scrollWidth ? (sc.scrollLeft + (ancla||0)) / sc.scrollWidth : 0;
+  fmtZoom = Math.round(Math.max(30, Math.min(200, pct)));
+  try{ localStorage.setItem('boyes_pt_zoom', fmtZoom); }catch(e){}
+  planZoomAplica();
+  if(sc){ sc.style.scrollBehavior='auto'; sc.scrollLeft = rel * sc.scrollWidth - (ancla||0); sc.style.scrollBehavior=''; }
+}
+function planVer(n){
+  const sc = document.getElementById('wkScroll'); if(!sc) return;
+  const tbl = sc.querySelector('table.pt'); planZoomAplica();
+  const quiere = n==='mes' ? tbl._tot : AN.cl + Number(n)*(7*AN.d + AN.t);
+  planZoomA(Math.floor(sc.clientWidth / quiere * 100) - 1);
+  sc.style.scrollBehavior='auto'; sc.scrollLeft = n==='mes' ? 0 : planInicioDe(planSem||0); sc.style.scrollBehavior='';
+}
+let _planResizeListo = false;
 let schData=null, schWeek=null, schEdit={}, schSelEmp=null;
 
 /* ---------- helpers ---------- */
@@ -899,7 +946,7 @@ function enterApp(){
   if(['1','2'].includes(_nav.fl)) finLoc = Number(_nav.fl);
   if(['1','2'].includes(_nav.al)) adminLoc = Number(_nav.al);
   if(['graf','main','fijos','banco','tarj','conc'].includes(_nav.pt)) planTab = _nav.pt;
-  if(/^[0-5]$/.test(_nav.ps||'')) planSem = Number(_nav.ps);
+  if(/^[0-5]$/.test(_nav.ps||'')) planSemNav = Number(_nav.ps);
   const _tabIcons = {'vivo': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>',
     'resumen': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>',
     'hoy': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>',
@@ -1352,7 +1399,7 @@ const PLAN_GF = [
 ];
 
 async function refreshPlan(){
-  planExtra=[]; planSem=null;
+  planExtra=[]; planSem = (planSemNav!==null ? planSemNav : null); planSemNav = null;
   /* Lo traído del punto de venta pertenece a un mes y a una sucursal. Al
      cambiar cualquiera de los dos deja de aplicar, y dejarlo en pantalla es
      peor que no tenerlo: se lee como si fuera de lo que ahora se ve. */
@@ -1678,7 +1725,7 @@ function planViewMain(){
     /* Más ancha que el resto de la página: rompe el límite de 960px y usa toda
        la pantalla (hasta 1500px), para que quepan al menos dos semanas
        completas a la vista. */
-    #wkSlide.wk{width:calc(100vw - 32px);margin-left:calc(50% - 50vw + 16px);position:relative}
+    #wkSlide.wk{position:relative;max-width:none}
     #wkSlide .pt input{padding:2px 3px;font-size:12px}
     #wkSlide .pt .cl{width:auto;font-size:11.5px;padding:4px 7px}
     #wkSlide .pt .tc{padding:5px 6px;min-width:0}
@@ -1798,14 +1845,18 @@ function planViewMain(){
     #wkSlide .pt th .rz{position:absolute;top:0;right:-4px;width:8px;height:100%;cursor:col-resize;z-index:3}
     #wkSlide .pt th .rz:hover,#wkSlide.rzing .pt th .rz{background:rgba(26,115,232,.35)}
     #wkSlide.rzing,#wkSlide.rzing *{cursor:col-resize !important;user-select:none}
+    #wkSlide .wk-h .ver{display:inline-flex;gap:4px;align-items:center;font-size:12px;font-weight:700;margin-left:12px}
+    #wkSlide .wk-h .ver button{border:1px solid #000;background:#fff;color:#000;font:700 11.5px Arial,sans-serif;padding:3px 8px;cursor:pointer}
+    #wkSlide .wk-h .ver button:hover{background:#E8F0FE}
   </style>`;
 
   const mesVenta = semTot.reduce((s,x)=>s+x.venta,0);
   h += `<div class="wk" id="wkSlide">
       <div class="wk-h">${nomMes.toUpperCase()}
-        <span class="sub">desliza de lado · estira columnas con el mouse en los encabezados</span>
+        <span class="sub">Ctrl/⌘ + rueda para zoom · estira columnas desde los encabezados</span>
+        <span class="ver">Ver <button data-ver="1">1 sem</button><button data-ver="2">2 sem</button><button data-ver="3">3 sem</button><button data-ver="mes">Mes</button></span>
         <span class="tot">${mesVenta>0?money(mesVenta):'—'}</span></div>
-      <div class="wk-sc" id="wkScroll"><table class="pt" style="width:max(${anchoTabla}px,100%);min-width:${anchoTabla}px;table-layout:fixed">
+      <div class="wk-sc" id="wkScroll"><table class="pt" style="width:${anchoTabla}px;min-width:${anchoTabla}px;table-layout:fixed">
         <colgroup><col data-an="cl" style="width:${ANCHO_CL}px">${COLS.map(c=>`<col data-an="${c.t==='d'?'d':'t'}" style="width:${c.t==='d'?ANCHO_D:ANCHO_T}px">`).join('')}</colgroup>
         <thead><tr>
         <th class="cl" style="position:relative">CONCEPTO<i class="rz" data-rz="cl" title="Arrastra para hacer más ancho · doble clic: normal"></i></th>`;
@@ -2184,11 +2235,17 @@ async function wirePlan(){
   {
     const sc = document.getElementById('wkScroll');
     if(sc){
-      const inicioDe = i => {
-        const th = sc.querySelector(`th[data-wkstart="${i}"]`);
-        const cl = sc.querySelector('thead th.cl');
-        return th ? Math.max(0, th.offsetLeft - (cl ? cl.offsetWidth : 0)) : 0;
-      };
+      planCaja(); planZoomAplica();
+      if(!_planResizeListo){ _planResizeListo = true;
+        window.addEventListener('resize', ()=>{ planCaja(); planZoomAplica(); }); }
+      const inicioDe = planInicioDe;
+      document.querySelectorAll('#wkSlide [data-ver]').forEach(b => b.addEventListener('click', ()=>planVer(b.dataset.ver)));
+      sc.addEventListener('wheel', e => {
+        if(!(e.ctrlKey || e.metaKey)) return;
+        e.preventDefault();
+        const f = Math.exp(-e.deltaY * (e.ctrlKey && !e.metaKey && Math.abs(e.deltaY) < 20 ? 0.01 : 0.002));
+        planZoomA(fmtZoom * f, e.clientX - sc.getBoundingClientRect().left);
+      }, {passive:false});
       const prev = sc.style.scrollBehavior; sc.style.scrollBehavior = 'auto';
       if(planIrA !== null){ sc.scrollLeft = inicioDe(planSem); planIrA = null; }
       else if(planScrollX && planScrollX.m === planMonth) sc.scrollLeft = planScrollX.x;
@@ -2198,11 +2255,7 @@ async function wirePlan(){
       /* Estirar columnas con el mouse */
       const tbl = sc.querySelector('table.pt'), box = document.getElementById('wkSlide');
       const anGuarda = a => { try{ localStorage.setItem('planAncho', JSON.stringify(a)); }catch(e){} };
-      const anAplica = a => {
-        let tot = 0;
-        tbl.querySelectorAll('col[data-an]').forEach(c => { const w = a[c.dataset.an]; c.style.width = w+'px'; tot += w; });
-        tbl.style.width = `max(${tot}px,100%)`; tbl.style.minWidth = tot+'px';
-      };
+      const anAplica = a => { AN = a; planZoomAplica(); };
       sc.querySelectorAll('th .rz').forEach(h => {
         h.addEventListener('dblclick', e => { e.preventDefault(); e.stopPropagation(); AN = {...AN_DEF}; anAplica(AN); anGuarda(AN); });
         h.addEventListener('pointerdown', e => {
@@ -2210,7 +2263,7 @@ async function wirePlan(){
           const k = h.dataset.rz, x0 = e.clientX, w0 = AN[k];
           const min = k==='cl' ? 70 : 34, max = k==='cl' ? 400 : 200;
           box.classList.add('rzing'); sc.style.scrollSnapType = 'none';
-          const mv = ev => { AN = {...AN, [k]: Math.round(Math.max(min, Math.min(max, w0 + ev.clientX - x0)))}; anAplica(AN); };
+          const mv = ev => { AN = {...AN, [k]: Math.round(Math.max(min, Math.min(max, w0 + (ev.clientX - x0) / planZ())))}; anAplica(AN); };
           const up = () => { box.classList.remove('rzing'); sc.style.scrollSnapType = ''; anGuarda(AN);
             window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', up); };
           window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up);
@@ -2362,7 +2415,7 @@ async function exportPlanExcel(){
 <script src="/js/app-vivo-v2.js?v=3" defer></script>
 <script src="/js/app-ctas-v2.js?v=1" defer></script>
 <script src="/js/app-graf-v2.js" defer></script>
-<script src="/js/app-fmt-v2.js" defer></script>
+<script src="/js/app-fmt-v2.js?v=2" defer></script>
 <script src="/js/app-hor-v2.js" defer></script>
 <script src="/js/app-ped-v2.js" defer></script>
 <script src="/js/app-ban-v2.js" defer></script>
