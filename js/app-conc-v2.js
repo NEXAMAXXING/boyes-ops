@@ -494,11 +494,36 @@ function concReparte(pagos, casillas){
   return {deMov, compite};
 }
 
+/* PUENTE: entra un monto de una cuenta tuya (que no es la de la otra
+   sucursal) y ese mismo monto sale a otra cuenta tuya el mismo día o al
+   siguiente. Ej. 1 jun: entran $30,000 de CTMAX-6311 y salen $30,000 a
+   BLACK-5296. La sucursal solo sirvió de paso: no es gasto ni retiro. */
+let concPuentesCache = {edo:null, map:null};
+/* Cuentas conocidas que no son de las sucursales (por sus últimos 4). */
+const CONC_CTA_NOMBRE = {'6311': 'Apaches (constructora)'};
+const concCtaTxt = c => c ? `${c.alias}-${c.ult4}${CONC_CTA_NOMBRE[c.ult4] ? ' · '+CONC_CTA_NOMBRE[c.ult4] : ''}` : 'otra cuenta';
+function concPuentes(){
+  if(!concEdo) return new Map();
+  if(concPuentesCache.edo === concEdo) return concPuentesCache.map;
+  const map = new Map(), usados = new Set();
+  const dif = (a,b) => Math.abs((new Date(a) - new Date(b)) / 864e5);
+  const salidas = concEdo.movs.filter(m => m.tipo==='cargo' && m.traspaso && m.cuenta && !m.sucCuenta);
+  const entradas = concEdo.movs.filter(m => m.tipo==='abono' && m.cuenta && !m.cuenta.sale && !CONC_CUENTAS[m.cuenta.ult4]);
+  for(const s of salidas){
+    const e = entradas.filter(e => !usados.has(e.id) && Math.abs(e.monto - s.monto) < 0.01 && dif(e.fecha, s.fecha) <= 1)
+      .sort((a,b) => dif(a.fecha, s.fecha) - dif(b.fecha, s.fecha))[0];
+    if(e){ usados.add(e.id); map.set(s.id, e); }
+  }
+  concPuentesCache = {edo: concEdo, map};
+  return map;
+}
+
 function concEstadoDe(mov, casillas, rep){
   if(['comision','traspaso','rendimiento','deposito_tarjeta'].includes(mov.clase)) return 'aparte';
   if(mov.tipo === 'abono') return 'aparte';
   if(concIgnorado(mov)) return 'ignorado';
   if(concPendiente(mov)) return 'pendiente';
+  if(concPuentes().has(mov.id) && !casillas.some(c => c.usada && c.usada.mov === mov.id)) return 'puente';
   /* La nota dice que es de la OTRA sucursal ("COCA BOYES GYN" pagado desde
      San Carlos): no va en esta planilla; lo que importa es que la otra
      sucursal lo haya reembolsado. */
@@ -609,6 +634,22 @@ async function concIgnora(movId, nota){
   P.formato._concIgn[movId] = {nota: nota||'', monto: mov.monto, fecha: mov.fecha, por: user.name, cuando: new Date().toISOString()};
   render(); toast('Listo — ya no sale como pendiente');
   try{ await concGuarda(ym); }catch(e){ toast('No se pudo guardar — revisa tu conexión'); }
+}
+/* Puente: se marca "no va" y, si Karen lo había apuntado, se borra ese apunte. */
+async function concPuenteNoVa(movId, ymClave, nota){
+  const mov = concEdo.movs.find(m=>m.id===movId); if(!mov) return;
+  if(ymClave){
+    const [ym, clave] = [ymClave.slice(0,7), ymClave.slice(8)];
+    const [, cat, d] = clave.split('|'); const P = concMeses[ym];
+    if(P && cat && d){
+      if(P.gastos_var?.[cat]) delete P.gastos_var[cat][d];
+      if(P.formato) delete P.formato[clave];
+      concPend[ym] = concPend[ym] || {}; concPend[ym].gv = concPend[ym].gv || {};
+      (concPend[ym].gv[cat] = concPend[ym].gv[cat] || {})[d] = '';
+      if(ym !== mov.fecha.slice(0,7)){ try{ await concGuarda(ym); }catch(e){} }
+    }
+  }
+  await concIgnora(movId, nota);
 }
 async function concDesignora(movId){
   const mov = concEdo.movs.find(m=>m.id===movId); if(!mov) return;
@@ -817,6 +858,7 @@ function concCuadreHTML(estados, casillas){
     ['com_ok',    '🏦 Comisiones bancarias (ya en la planilla)', '#0B6E3F'],
     ['ignorado',  '🚫 No va en la planilla', '#5B6472'],
     ['otra_suc',  '📍 Pagos de la otra sucursal', '#1B4FA8'],
+    ['puente',    '🔁 Puentes (entró y salió) — falta marcarlos', '#E0A100'],
     ['com_falta', '🏦 Comisiones bancarias — falta anotarlas', '#E0A100'],
     ['traspaso',  '↔️ Traspasos entre cuentas / a personas — revisar', '#E0A100'],
     ['adm_ok',    '🏦 Administración de cuenta Inbursa (ya en la planilla)', '#0B6E3F'],
@@ -1130,7 +1172,8 @@ function concChip(estado){
     aparte     : ['Va aparte', '#5B6472', '#EDEDED'],
     ignorado   : ['No va', '#5B6472', '#EDEDED'],
     pendiente  : ['⏸ Pendiente', '#8A5A00', '#FFE7B0'],
-    otra_suc   : ['📍 Otra sucursal', '#1B4FA8', '#EAF1FD']
+    otra_suc   : ['📍 Otra sucursal', '#1B4FA8', '#EAF1FD'],
+    puente     : ['🔁 Puente', '#6A3FB5', '#F0E9FC']
   };
   const [t,c,b] = M[estado] || M.aparte;
   return `<span class="conc-chip" style="color:${c};background:${b}">${t}</span>`;
@@ -1263,10 +1306,12 @@ function concView(){
       sec==='ign'   ? estado==='ignorado' :
       sec==='pend'  ? estado==='pendiente' :
       sec==='otra'  ? estado==='otra_suc' :
+      sec==='puente'? estado==='puente' :
       sec==='ok'    ? estado==='confirmado' : true);
   const secciones = concFiltro==='pendientes'
     ? [['match','✅ Encontré la casilla — por confirmar', 'Revisa y confirma. Al confirmar se queda aquí en verde.'],
        ['sin','❓ No los encontré en la planilla', 'Ninguna casilla libre con ese monto. Elige qué es cada uno.'],
+       ['puente','🔁 Puente: entró y salió el mismo dinero', 'Entró de una cuenta tuya y salió el mismo monto a otra tuya. La sucursal solo sirvió de paso: no es gasto ni retiro.'],
        ['otra','📍 Pagos de la otra sucursal', 'La nota de la transferencia dice que es de la otra sucursal. No van en esta planilla; aquí se ve si ya te reembolsaron.'],
        ['pend','⏸ Pendientes de checar con Karen', 'Salen en el PDF para mandárselo. Cuando sepas qué es, dale "Ya lo resolví" y vuelve a su lugar.'],
        ['ign','🚫 Marcados como "no va en la planilla"', '']]
@@ -1339,6 +1384,21 @@ function concView(){
         <input type="text" class="conc-nota" data-cnotaprop="${esc(mov.id)}" placeholder="💬 Nota (opcional)">
         <button class="btn-primary" data-concok="${esc(mov.id)}">Confirmar</button>
         <button class="btn-quiet" data-cpok="${esc(mov.id)}" title="No lo reconozco: checar con Karen">⏸ Pendiente</button></div>`;
+    } else if(estado==='puente'){
+      const e = concPuentes().get(mov.id);
+      const de = concCtaTxt(e.cuenta), a = concCtaTxt(mov.cuenta);
+      const cand = (rep.deMov.get(mov.id) || []).find(c => !c.fijo && !c.aprox && c.karen);
+      const notaIg = `Puente: entró de ${de} (${e.fecha}) y salió a ${a}`;
+      h += `<div class="conc-cand" style="background:#F6F1FE;flex-direction:column;align-items:flex-start;gap:3px;font-size:12.5px">
+          <span>⬅️ Entró ${money(e.monto)} de <b>${esc(de)}</b> el ${esc(e.fecha)} → ➡️ salió ${money(mov.monto)} a <b>${esc(a)}</b> el ${esc(mov.fecha)}.</span>
+          ${cand ? `<span>⚠️ Karen lo anotó en <b>${esc(concEtiqueta(cand, mov))}</b>. Si es puente, ese apunte sobra: infla los gastos ${money(mov.monto)}.</span>` : ''}
+        </div>
+        <div class="conc-rap">
+          ${cand ? `<button class="btn-primary" data-cpte="${esc(mov.id)}" data-cptek="${esc(cand.ym)}|${esc(cand.clave)}" data-cpten="${esc(notaIg)}">🔁 Es puente: no va y quitar de ${esc(concEtiqueta(cand, mov))}</button>` : ''}
+          <button class="${cand?'btn-quiet':'btn-primary'}" data-cpte="${esc(mov.id)}" data-cpten="${esc(notaIg)}">🔁 Es puente: no va en la planilla</button>
+          ${cand ? `<button class="btn-quiet" data-concok1="${esc(mov.id)}" data-concok1k="${esc(cand.ym)}|${esc(cand.clave)}">No es puente: confirmar en ${esc(concEtiqueta(cand, mov))}</button>` : ''}
+          <button class="btn-quiet" data-cpok="${esc(mov.id)}">⏸ Pendiente</button>
+        </div>`;
     } else if(estado==='otra_suc'){
       const re = concReembolso(mov), otraN = (LOCS[concNotaSucursal(mov)]||'').replace(/^Boye's\s*/,'');
       h += `<div class="conc-cand" style="background:${re?'#EAF7EE':'#FFF1EF'};font-size:12.5px">
@@ -1582,6 +1642,9 @@ function wireConc(){
   document.querySelectorAll('[data-cpok]').forEach(b=>b.addEventListener('click', ()=>{
     const id = b.dataset.cpok; concDejaPend(id, _v('data-cpnew', id).trim()); }));
   document.querySelectorAll('[data-cpquita]').forEach(b=>b.addEventListener('click', ()=>concQuitaPend(b.dataset.cpquita)));
+  document.querySelectorAll('[data-cpte]').forEach(b=>b.addEventListener('click', ()=>concPuenteNoVa(b.dataset.cpte, b.dataset.cptek||'', b.dataset.cpten||'Puente')));
+  document.querySelectorAll('[data-concok1]').forEach(b=>b.addEventListener('click', ()=>{
+    const [ym, ...r] = b.dataset.concok1k.split('|'); concConfirma(b.dataset.concok1, r.join('|'), ym); }));
   document.querySelectorAll('[data-cpnota]').forEach(i=>i.addEventListener('change', ()=>concNotaPend(i.dataset.cpnota, i.value.trim())));
   document.getElementById('concPendPDF')?.addEventListener('click', concPendPDF);
   document.querySelectorAll('[data-cmvok]').forEach(b=>b.addEventListener('click', ()=>{
