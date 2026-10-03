@@ -676,6 +676,24 @@ async function concDejaPend(movId, nota){
   render(); toast('Quedó pendiente para checar con Karen');
   try{ await concGuarda(ym); }catch(e){ toast('No se pudo guardar — revisa tu conexión'); }
 }
+/* La nota por defecto de un cargo sin apunte: Karen no lo anotó. */
+function concNotaFalta(mov){
+  const K = concProveedor(mov);
+  return `Karen no lo anotó${K ? ` — va en ${K}` : ''}. ${mov.nota ? `Nota del banco: ${mov.nota}.` : ''}`.trim();
+}
+async function concDejaPendVarios(ids){
+  const meses = new Set();
+  for(const id of ids){
+    const mov = concEdo.movs.find(m=>m.id===id); if(!mov) continue;
+    const ym = mov.fecha.slice(0,7), P = concMeses[ym]; if(!P) continue;
+    P.formato = P.formato || {}; P.formato._concChk = P.formato._concChk || {};
+    P.formato._concChk[id] = {nota: concNotaFalta(mov), monto: mov.monto, fecha: mov.fecha,
+      ben: mov.beneficiario||'', concepto: mov.concepto||'', nota_banco: mov.nota||'', por: user.name, cuando: new Date().toISOString()};
+    meses.add(ym);
+  }
+  render(); toast(`${ids.length} quedaron pendientes para Karen`);
+  for(const ym of meses){ try{ await concGuarda(ym); }catch(e){ toast('No se pudo guardar — revisa tu conexión'); } }
+}
 async function concQuitaPend(movId){
   const mov = concEdo.movs.find(m=>m.id===movId); if(!mov) return;
   const ym = mov.fecha.slice(0,7), P = concMeses[ym];
@@ -1324,6 +1342,7 @@ function concView(){
   if(!visibles.length) continue;
   hay = true;
   if(titulo) h += `<div class="conc-sec"><b>${titulo} · ${visibles.length}</b>${ayuda?`<span class="hint">${ayuda}</span>`:''}
+    ${sec==='sin'?`<button class="btn-primary" id="concSinTodos" data-ids="${esc(visibles.map(x=>x.mov.id).join(','))}" style="align-self:flex-start;margin-top:6px">⏸ Mandar los ${visibles.length} a pendientes (Karen no los anotó)</button>`:''}
     ${sec==='pend'?`<button class="btn-primary" id="concPendPDF" style="align-self:flex-start;margin-top:6px">📄 PDF de pendientes para Karen</button>`:''}</div>`;
   /* Cada sección se desplaza sola: la página no crece a 100 tarjetas y las
      demás secciones (y el cuadre) quedan a la mano. */
@@ -1435,10 +1454,10 @@ function concView(){
           : K ? `Va en <b>${esc(K)}</b>, pero no hay casilla libre de ese monto.`
               : `No encontré casilla de ese monto.`}</span></div>
       <div class="conc-rap">
+        <button class="btn-primary" data-cpok="${mid}" data-cpdef="${esc(concNotaFalta(mov))}">⏸ Pendiente: Karen no lo anotó</button>
         ${(() => { const Kf = concProveedor(mov); const ymF = concNotaMes(mov) || mov.fecha.slice(0,7);
-            return (Kf && fijos.includes(Kf) && concMeses[ymF]) ? `<button class="btn-primary" data-cfok="${mid}" data-cfnom2="${esc(Kf)}" data-cfym2="${ymF}">🔒 Es ${esc(Kf)} · ${concNomMes(ymF)} (gasto fijo)</button>` : ''; })()}
-        ${sug && !(concProveedor(mov) && fijos.includes(concProveedor(mov))) ? `<button class="btn-primary" data-crapcap="${mid}" data-crapcat="${esc(sug)}">✏️ Capturar en ${esc(sug)} · ${esc(mov.fecha.slice(8,10))} ${CONC_MESES[Number(mov.fecha.slice(5,7))].slice(0,3)}</button>` : ''}
-        <button class="${sug?'btn-quiet':'btn-primary'}" data-cpok="${mid}">⏸ Pendiente</button>
+            return (Kf && fijos.includes(Kf) && concMeses[ymF]) ? `<button class="btn-quiet" data-cfok="${mid}" data-cfnom2="${esc(Kf)}" data-cfym2="${ymF}">🔒 Es ${esc(Kf)} · ${concNomMes(ymF)} (gasto fijo)</button>` : ''; })()}
+        ${sug && !(concProveedor(mov) && fijos.includes(concProveedor(mov))) ? `<button class="btn-quiet" data-crapcap="${mid}" data-crapcat="${esc(sug)}">✏️ Capturar en ${esc(sug)} · ${esc(mov.fecha.slice(8,10))} ${CONC_MESES[Number(mov.fecha.slice(5,7))].slice(0,3)}</button>` : ''}
         <button class="btn-quiet conc-masbtn" data-cmas="${mid}">${concAbiertos.has(mov.id)?'Menos ▴':'Más opciones ▾'}</button>
       </div>
       <div class="conc-opc" data-cmasbox="${mid}"${concAbiertos.has(mov.id)?'':' hidden'}>
@@ -1641,7 +1660,9 @@ function wireConc(){
   document.querySelectorAll('[data-cadm]').forEach(b=>b.addEventListener('click', ()=>concAdminAnota(Number(b.dataset.cadm))));
   document.querySelectorAll('[data-ccom]').forEach(b=>b.addEventListener('click', ()=>concComAnota(Number(b.dataset.ccom))));
   document.querySelectorAll('[data-cpok]').forEach(b=>b.addEventListener('click', ()=>{
-    const id = b.dataset.cpok; concDejaPend(id, _v('data-cpnew', id).trim()); }));
+    const id = b.dataset.cpok; concDejaPend(id, _v('data-cpnew', id).trim() || b.dataset.cpdef || ''); }));
+  document.getElementById('concSinTodos')?.addEventListener('click', e=>{
+    const ids = (e.currentTarget.dataset.ids||'').split(',').filter(Boolean); if(ids.length) concDejaPendVarios(ids); });
   document.querySelectorAll('[data-cpquita]').forEach(b=>b.addEventListener('click', ()=>concQuitaPend(b.dataset.cpquita)));
   document.querySelectorAll('[data-cpte]').forEach(b=>b.addEventListener('click', ()=>concPuenteNoVa(b.dataset.cpte, b.dataset.cptek||'', b.dataset.cpten||'Puente')));
   document.querySelectorAll('[data-concok1]').forEach(b=>b.addEventListener('click', ()=>{
