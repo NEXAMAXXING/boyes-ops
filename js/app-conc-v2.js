@@ -371,7 +371,7 @@ async function concDesignora(movId){
 
 /* "Capturarlo aquí": el pago sí es gasto pero nadie lo apuntó. Se escribe en
    la planilla (concepto y día que elijas) y queda confirmado de una vez. */
-async function concCaptura(movId, cat, fecha){
+async function concCaptura(movId, cat, fecha, nota){
   const mov = concEdo.movs.find(m=>m.id===movId); if(!mov || !cat || !fecha) return;
   const ym = fecha.slice(0,7), d = String(Number(fecha.slice(8,10)));
   if(!concMeses[ym]){ toast('Ese mes no está cargado aquí — usa una fecha de '+Object.keys(concMeses).join(', ')); return; }
@@ -382,7 +382,7 @@ async function concCaptura(movId, cat, fecha){
   P.gastos_var[cat][d] = mov.monto;
   concPend[ym] = concPend[ym] || {}; concPend[ym].gv = concPend[ym].gv || {};
   (concPend[ym].gv[cat] = concPend[ym].gv[cat] || {})[d] = mov.monto;
-  await concConfirma(movId, `g|${cat}|${d}`, ym);
+  await concConfirma(movId, `g|${cat}|${d}`, ym, nota);
 }
 
 /* "Es gasto fijo": el monto puede no coincidir (subió la mensualidad). Se toma
@@ -403,7 +403,19 @@ async function concAFijo(movId, nom, ym){
 const CONC_COLOR = '#FF9900';
 const CONC_AZUL_VIEJO = '#CFE3FB';
 
-async function concConfirma(movId, clave, ym){
+/* Nota de la casilla (ej. "ANUNCIOS LUMINOSOS"): vive en el formato de la
+   planilla, así sale igual en la tabla del mes y en la de conceptos. */
+async function concNota(clave, ym, texto){
+  const P = concMeses[ym]; if(!P) return;
+  P.formato = P.formato || {};
+  const f = { ...(P.formato[clave]||{}) };
+  if(texto) f.nota = texto; else delete f.nota;
+  if(Object.keys(f).length) P.formato[clave] = f; else delete P.formato[clave];
+  toast(texto ? 'Nota guardada' : 'Nota quitada');
+  try{ await concGuarda(ym); }catch(e){ toast('No se pudo guardar — revisa tu conexión'); }
+}
+
+async function concConfirma(movId, clave, ym, nota){
   const P = concMeses[ym]; if(!P) return;
   P.formato = P.formato || {};
   P.formato._conc = P.formato._conc || {};
@@ -411,6 +423,7 @@ async function concConfirma(movId, clave, ym){
   P.formato._conc[clave] = {mov: movId, fecha_banco: mov?.fecha, monto: mov?.monto,
                             por: user.name, cuando: new Date().toISOString()};
   P.formato[clave] = { ...(P.formato[clave]||{}), bg: CONC_COLOR };
+  if(nota) P.formato[clave].nota = nota;
   concRecientes.add(movId);
   if(clave.startsWith('g|') && mov){
     const [, cat, d] = clave.split('|');
@@ -538,6 +551,7 @@ function concView(){
                letter-spacing:.02em;white-space:nowrap}
     .conc-mov{border:1px solid #E1DCD0;border-radius:11px;padding:11px 13px;margin-bottom:8px;background:var(--card)}
     .conc-mov.sin{border-left:4px solid #C0261F}
+    .conc-nota{flex:0 1 260px;min-width:160px;padding:6px 8px;border:1px solid #D8D2C4;border-radius:7px;font-family:inherit;font-size:12.5px}
     .conc-sec{display:flex;flex-direction:column;gap:2px;margin:16px 0 8px;padding-bottom:6px;border-bottom:2px solid #E1DCD0;font-size:14px}
     .conc-mov.ign{border-left:4px solid #8A8F98;opacity:.8}
     .conc-opc{display:flex;flex-direction:column;gap:6px;margin-top:8px}
@@ -669,6 +683,8 @@ function concView(){
       h += `<div class="conc-cand">
         <span style="font-size:12.5px">Va contra <b>${esc(concEtiqueta(c, mov))}</b>
           — lo confirmaste ${c.usada.por?`(${esc(c.usada.por)})`:''}</span>
+        <input type="text" class="conc-nota" data-cnotaok="${esc(c.ym)}|${esc(c.clave)}" placeholder="💬 Nota (ej. ANUNCIOS LUMINOSOS)"
+          value="${esc(((concMeses[c.ym]||{}).formato||{})[c.clave]?.nota||'')}">
         <button class="btn-quiet" data-concdes="${esc(c.clave)}" data-concym="${c.ym}"
                 style="margin-left:auto">Deshacer</button></div>`;
     } else if(estado==='propuesto'){
@@ -679,6 +695,7 @@ function concView(){
             ${c.aprox?'≈ ':''}${esc(concEtiqueta(c, mov))} · ${c.aprox?`Karen puso ${money(c.monto)} → queda ${money(mov.monto)}`:money(c.monto)}${c.fijo||c.aprox?'':` · ${concDias(c.fecha,mov.fecha)} días antes`}
           </option>`).join('')}
         </select>
+        <input type="text" class="conc-nota" data-cnotaprop="${esc(mov.id)}" placeholder="💬 Nota (opcional)">
         <button class="btn-primary" data-concok="${esc(mov.id)}">Confirmar</button></div>`;
     } else if(estado==='ignorado'){
       const ig = concIgnorado(mov);
@@ -711,6 +728,7 @@ function concView(){
         <div class="conc-o"><b>✏️ Capturarlo como gasto</b>
           <select data-ccat="${mid}"><option value="">Concepto…</option>${cats.map(c=>`<option${c===sug?' selected':''}>${esc(c)}</option>`).join('')}</select>
           <input type="date" data-cfec="${mid}" value="${esc(mov.fecha)}">
+          <input type="text" class="conc-nota" data-cnotacap="${mid}" placeholder="💬 Nota (opcional)">
           <button class="btn-primary" data-ccok="${mid}">Capturar</button>
           <span class="hint">Lo escribe en la planilla ese día y queda confirmado.</span></div>
         <div class="conc-o"><b>🚫 No va en la planilla</b>
@@ -809,15 +827,19 @@ function wireConc(){
     if(!sel || !sel.value) return;
     const [ym, ...resto] = sel.value.split('|');
     b.disabled = true; b.textContent = 'Guardando…';
-    await concConfirma(b.dataset.concok, resto.join('|'), ym);
+    const nota = (document.querySelector(`[data-cnotaprop="${CSS.escape(b.dataset.concok)}"]`)?.value || '').trim();
+    await concConfirma(b.dataset.concok, resto.join('|'), ym, nota);
   }));
   const _v = (attr, id) => document.querySelector(`[${attr}="${CSS.escape(id)}"]`)?.value || '';
+  document.querySelectorAll('[data-cnotaok]').forEach(i=>i.addEventListener('change', ()=>{
+    const [ym, ...r] = i.dataset.cnotaok.split('|'); concNota(r.join('|'), ym, i.value.trim()); }));
+  document.querySelectorAll('.conc-nota').forEach(i=>i.addEventListener('keydown', e=>{ if(e.key==='Enter') i.blur(); }));
   document.querySelectorAll('[data-cfok]').forEach(b=>b.addEventListener('click', ()=>{
     const id = b.dataset.cfok; concAFijo(id, _v('data-cfnom', id), _v('data-cfym', id)); }));
   document.querySelectorAll('[data-ccok]').forEach(b=>b.addEventListener('click', ()=>{
     const id = b.dataset.ccok, cat = _v('data-ccat', id);
     if(!cat){ toast('Elige el concepto'); return; }
-    concCaptura(id, cat, _v('data-cfec', id)); }));
+    concCaptura(id, cat, _v('data-cfec', id), _v('data-cnotacap', id).trim()); }));
   document.querySelectorAll('[data-ciok]').forEach(b=>b.addEventListener('click', ()=>{
     const id = b.dataset.ciok; concIgnora(id, _v('data-cinota', id)); }));
   document.querySelectorAll('[data-concdesig]').forEach(b=>b.addEventListener('click', ()=>concDesignora(b.dataset.concdesig)));

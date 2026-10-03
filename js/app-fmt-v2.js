@@ -77,6 +77,9 @@ function fmtPinta(){
     inp.style.fontWeight = f.b ? '800' : '';
     inp.style.fontStyle  = f.i ? 'italic' : '';
     inp.style.textDecoration = f.s ? 'line-through' : '';
+    /* Nota: esquinita roja como comentario de Excel; al pasar el mouse se lee. */
+    td.classList.toggle('tiene-nota', !!f.nota);
+    inp.title = f.nota ? '💬 ' + f.nota : '';
   });
   fmtMarca();
   const t = M.querySelector('.pt');
@@ -109,6 +112,8 @@ function fmtBarra(){
         <span class="fmt-cubo" style="background:${uno.bg||'#fff'}"></span></button>
       <div class="fmt-menu" data-fmt-m="bg">${swatch(FMT_RELLENO,'bg')}</div>
     </div>
+    <input type="text" class="fmt-nota" placeholder="💬 Nota de la casilla (ej. ANUNCIOS LUMINOSOS)"
+      value="${fmtSel.length===1 ? String(uno.nota||'').replace(/"/g,'&quot;') : ''}" ${fmtSel.length===1?'':'disabled'}>
     <span class="fmt-info">${fmtSel.length
       ? `<b>${fmtSel.length}</b> casilla${fmtSel.length===1?'':'s'} · shift+clic para un rango`
       : 'Toca una casilla para darle formato'}</span>
@@ -136,6 +141,16 @@ function instalaFormato(){
     fmtBarraRefresca();
   });
 
+  /* La nota se guarda al salir del campo o con Enter (luego "Guardar"). */
+  M.addEventListener('change', e=>{
+    if(!e.target.classList || !e.target.classList.contains('fmt-nota')) return;
+    if(fmtSel.length !== 1) return;
+    fmtAplica({ nota: e.target.value.trim() });
+    toast(e.target.value.trim() ? 'Nota puesta — no olvides 💾 Guardar' : 'Nota quitada — no olvides 💾 Guardar');
+  });
+  M.addEventListener('keydown', e=>{
+    if(e.key==='Enter' && e.target.classList && e.target.classList.contains('fmt-nota')) e.target.blur();
+  });
   M.addEventListener('click', e=>{
     const ab = e.target.closest('[data-fmt-abrir]');
     if(ab){ const m = M.querySelector(`[data-fmt-m="${ab.dataset.fmtAbrir}"]`);
@@ -201,6 +216,11 @@ function fmtBarraRefresca(){
     : 'Toca una casilla para darle formato';
   M.querySelectorAll('[data-fmt-t]').forEach(b=>
     b.classList.toggle('fmt-on', fmtSel.length===1 && !!uno[b.dataset.fmtT]));
+  const nota = M.querySelector('.fmt-nota');
+  if(nota && document.activeElement !== nota){
+    nota.disabled = fmtSel.length !== 1;
+    nota.value = fmtSel.length===1 ? (uno.nota||'') : '';
+  }
   const cubo = M.querySelector('[data-fmt-abrir="bg"] .fmt-cubo');
   if(cubo) cubo.style.background = uno.bg || '#fff';
   const letra = M.querySelector('[data-fmt-abrir="fg"] b');

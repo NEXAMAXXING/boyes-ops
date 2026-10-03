@@ -2021,7 +2021,10 @@ function planViewMain(){
     const mes = Object.values(gc).reduce((a,b)=>a+planN(b), 0);
     if(!mes && !planTodos) return;
     const f = planFamDe(cat);
-    h += `<tr><td style="text-align:left">${esc(cat)}</td>
+    const fm = planEdit.formato || {};
+    const notas = Object.keys(gc).filter(d => planN(gc[d]) && fm[`g|${cat}|${d}`]?.nota)
+      .sort((a,b)=>a-b).map(d => `${d} · ${money(planN(gc[d]))} · ${esc(fm[`g|${cat}|${d}`].nota)}`);
+    h += `<tr><td style="text-align:left">${esc(cat)}${notas.length?`<div class="plan-notas">💬 ${notas.join('<br>💬 ')}</div>`:''}</td>
       <td><select data-planfam="${esc(cat)}" style="font-size:11.5px;padding:3px 5px;border:1px solid #DDD8CC;border-radius:6px;background:var(--card);font-family:inherit">
         ${Object.entries(PLAN_FAM).map(([k,d])=>`<option value="${k}"${k===f?' selected':''}>${k} · ${esc(d.n)}</option>`).join('')}
       </select></td>
@@ -2426,11 +2429,11 @@ async function exportPlanExcel(){
 <script src="/js/app-vivo-v2.js?v=3" defer></script>
 <script src="/js/app-ctas-v2.js?v=1" defer></script>
 <script src="/js/app-graf-v2.js" defer></script>
-<script src="/js/app-fmt-v2.js?v=3" defer></script>
+<script src="/js/app-fmt-v2.js?v=4" defer></script>
 <script src="/js/app-hor-v2.js" defer></script>
 <script src="/js/app-ped-v2.js" defer></script>
 <script src="/js/app-ban-v2.js" defer></script>
-<script src="/js/app-conc-v2.js?v=6" defer></script>
+<script src="/js/app-conc-v2.js?v=7" defer></script>
 <script src="/js/app-pvta-v2.js" defer></script>
 <!-- El ?v= no es decoración: sin él el navegador se queda con la copia vieja
      y uno cree que desplegó algo que el usuario nunca vio. Súbelo al cambiar. -->
@@ -2589,6 +2592,11 @@ document.addEventListener('focusin', e=>{
 .fmt-sw.fmt-x{background:
   linear-gradient(45deg,transparent 45%,#D43E3E 45%,#D43E3E 55%,transparent 55%),#fff}
 .fmt-info{font-size:12px;color:var(--ink-2);margin-left:auto}
+.fmt-nota{flex:1;min-width:200px;max-width:380px;padding:6px 9px;border:1px solid #D8D2C4;border-radius:7px;font:inherit;font-size:12.5px;background:#fff}
+.fmt-nota:disabled{background:#F4F2EC;color:#999}
+.pt td.tiene-nota{position:relative}
+.pt td.tiene-nota::after{content:'';position:absolute;top:0;right:0;border-top:7px solid #E8312A;border-left:7px solid transparent;pointer-events:none}
+.plan-notas{font-size:11px;color:#5B6472;font-weight:500;margin-top:2px;line-height:1.35}
 .fmt-info b{color:var(--ink)}
 /* La casilla seleccionada se marca aunque no tenga el cursor dentro. */
 .pt td.fmt-sel{box-shadow:inset 0 0 0 2px var(--navy)}
