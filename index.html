@@ -1401,7 +1401,7 @@ const PLAN_GV = [
   'ABARROTE - SUPER MERCADO','TOCINO','CARNES YOREME','CERVEZA','PANADERIA',
   'DISEÑO GRAFICO (FLYERS, IMPRESIONES, ETC)','QUESOS Y QUESOS','COCA COLA',
   'DESECHABLES','GASOLINA','GAS','HARINA','MIXTURA','TRANSPORTE TAXI',
-  'MANTENIMIENTO','NOMINA','SAMS',"EMPAQUES BOYE'S",'ARTICULOS DE LIMPIEZA','RZ',
+  'MANTENIMIENTO','NOMINA','SAMS',"EMPAQUES BOYE'S",'ARTICULOS DE LIMPIEZA','RZ','AZ',
   'INVERSION','ESPECIAS MOY','PROPINA','UNIFORMES','AGUA/HIELO','VERDURA',
   'AGUINALDOS/VACACIONES/FINIQUITOS','SURTICHEF','EVENTOS - POSADAS - CUMPLEAÑOS',
   'MARISCO','VINO CLUB/ALCOHOL'
@@ -1543,7 +1543,7 @@ const PLAN_FAM = {
   N:     {n:'Nómina',               c:'#D43E3E'},
   O:     {n:'Otros',                c:'#9E9E9E'},
   RH:    {n:'Recursos humanos',     c:'#C2185B'},
-  RZ:    {n:'RZ',                   c:'#7E57C2'},
+  RZ:    {n:'Sueldos socios (RZ/AZ)', c:'#7E57C2'},
   S:     {n:'Servicios',            c:'#00897B'},
   U:     {n:'Uniformes',            c:'#5B6472'}
 };
@@ -1564,7 +1564,7 @@ const FAM_DEF = {
   'NOMINA':'N',
   'DESECHABLES':'O','PROPINA':'O','EVENTOS - POSADAS - CUMPLEAÑOS':'O',
   'AGUINALDOS/VACACIONES/FINIQUITOS':'RH',
-  'RZ':'RZ',
+  'RZ':'RZ', 'AZ':'RZ',          // RZ = sueldo Rodrigo · AZ = sueldo Armando (socio)
   'UNIFORMES':'U'
 };
 
@@ -2449,7 +2449,7 @@ async function exportPlanExcel(){
 <script src="/js/app-hor-v2.js" defer></script>
 <script src="/js/app-ped-v2.js" defer></script>
 <script src="/js/app-ban-v2.js" defer></script>
-<script src="/js/app-conc-v2.js?v=26" defer></script>
+<script src="/js/app-conc-v2.js?v=27" defer></script>
 <script src="/js/app-pvta-v2.js" defer></script>
 <!-- El ?v= no es decoración: sin él el navegador se queda con la copia vieja
      y uno cree que desplegó algo que el usuario nunca vio. Súbelo al cambiar. -->

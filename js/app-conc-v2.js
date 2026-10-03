@@ -388,6 +388,7 @@ const CONC_SEMILLA = [            // para arrancar mientras se junta historia
   [/MEGACABLE/, 'MEGACABLE'],
   [/TELMEX|TELEFONOS DE MEXICO/, 'TELMEX'],
   [/SIPARE/, 'IMSS'],
+  [/ARMANDO\s+ZE[ÑN]A/, 'AZ'],           // sueldo de Armando, el socio
   [/GASOL|GASOLINER|PEMEX|\bOXXO GAS\b|\bG500\b|\bARCO\b|\bBP\b|SHELL|MOBIL|\bREDCO\b|\bHIDROSINA\b/, 'GASOLINA']
 ];
 function concBenClave(t){
