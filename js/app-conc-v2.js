@@ -140,7 +140,19 @@ function concLee(lineas, anio){
       break;
     }
 
+    /* La nota que escribió Karen al transferir ("20260515 LIMPIEZA BOYES SC"):
+       viene con la fecha AAAAMMDD al frente. Es lo más específico del
+       movimiento: dice el concepto, la sucursal y a veces el mes. */
+    let nota = '';
+    for(let k=1; k<=7 && i+k<lineas.length; k++){
+      const sig = String(lineas[i+k]).replace(/\s+/g,' ').trim();
+      if(/^[A-Z]{3}\.\s*\d{0,2}/.test(sig)) break;
+      const nm = sig.match(/^20\d{6}\s+(.+)$/);
+      if(nm){ nota = nm[1].replace(/\s+[\d,]+\.\d{2}(\s+[\d,]+\.\d{2})?\s*$/,'').trim().slice(0,80); break; }
+    }
+
     movs.push({
+      nota,
       id: `${anio}-${String(mesN).padStart(2,'0')}-${String(dia).padStart(2,'0')}|${ref||i}|${monto.toFixed(2)}`,
       fecha: `${anio}-${String(mesN).padStart(2,'0')}-${String(dia).padStart(2,'0')}`,
       dia, mes: mesN, ref, concepto: concepto.slice(0,120), beneficiario,
@@ -218,6 +230,8 @@ function concAbonoOtra(mov, mitad){
 let concOtra = {};   // planillas de la OTRA sucursal (para ver si capturó su mitad)
 
 function concFijoAplica(c, mov){
+  const nm = concNotaMes(mov);
+  if(nm) return c.ym === nm;            // la nota dice de qué mes es ("RENTA BOYES SC MARZO")
   const dm = concMesDif(c.ym, mov.fecha.slice(0,7));
   if(dm === 0 || dm === 1) return true;
   if(dm === -1) return !!c.karen;
@@ -273,7 +287,7 @@ function concCandidatos(mov, casillas){
   const cand = exactos.length ? exactos
     : casillas.filter(c => !c.fijo && Math.abs(c.monto - mov.monto) <= holg && libre(c) && delProv(c))
               .map(c => ({...c, aprox: true}));
-  const nom = (mov.beneficiario + ' ' + mov.concepto).toUpperCase();
+  const nom = (mov.beneficiario + ' ' + mov.concepto + ' ' + (mov.nota||'')).toUpperCase();
   const puntos = c => {
     let p = c.fijo ? Math.abs(concMesDif(c.ym, mov.fecha.slice(0,7)))*15 : concDias(c.fecha, mov.fecha);
     const pal = c.cat.split(/[^A-ZÑ]+/i).filter(x=>x.length>3);
@@ -313,7 +327,49 @@ function concBenClave(t){
 }
 /* El concepto que le toca a un cargo, o null si no se sabe. Gana lo que la
    historia dice más veces; la semilla solo si no hay historia. */
+/* Lo que dice la nota de Karen: concepto, mes y sucursal. */
+const CONC_NOTA_SIN = [
+  [/COCA/, 'COCA COLA'], [/LIMPIEZA/, 'ARTICULOS DE LIMPIEZA'], [/TRAMPA/, 'TRAMPA DE GRASA'],
+  [/CONTA?B?L?I?LIDAD|CONTABLILIDAD|CONTADOR/, 'CONTABILIDAD'], [/REKO|BASURA/, 'RECOLECCION BASURA'],
+  [/\bRENTA\b/, 'RENTA'], [/CERVEZA/, 'CERVEZA'], [/VERDURA/, 'VERDURA'], [/GASOLINA/, 'GASOLINA'],
+  [/\bGAS\b/, 'GAS'], [/\bSAM'?S\b/, 'SAMS'], [/HARINA/, 'HARINA'], [/TOCINO/, 'TOCINO'],
+  [/PANADER/, 'PANADERIA'], [/MANTENIMIENTO/, 'MANTENIMIENTO'], [/\bAUTO\b|VEHICULO/, 'VEHICULO RZ'],
+  [/\bIMSS\b/, 'IMSS'], [/\bLUZ\b|\bCFE\b/, 'LUZ + PANEL SOLAR MENSUALIDAD'], [/TELMEX/, 'TELMEX'],
+  [/MEGACABLE/, 'MEGACABLE'], [/FUMIGA|FUMUGA/, 'FUMUGACION'], [/UNIFORME/, 'UNIFORMES'],
+  [/DESECHABLE/, 'DESECHABLES'], [/NOMINA/, 'NOMINA'], [/PROPINA/, 'PROPINA'], [/MARISCO/, 'MARISCO']
+];
+function concConceptos(){
+  return new Set([...(typeof PLAN_GV!=='undefined'?PLAN_GV:[]), ...(typeof PLAN_GF!=='undefined'?PLAN_GF:[]),
+    ...Object.values(concMeses).flatMap(P => [...Object.keys(P.gastos_var||{}), ...Object.keys(P.gastos_fijos||{})])]);
+}
+function concNotaConcepto(mov){
+  const t = String(mov.nota||'').toUpperCase(); if(!t) return null;
+  const todos = concConceptos();
+  /* Primero el nombre completo de un concepto ("QUESOS Y QUESOS", "CARNES YOREME"). */
+  const llano = [...todos].sort((a,b)=>b.length-a.length).find(c => c.length > 3 && t.includes(c.toUpperCase()));
+  if(llano) return llano;
+  const sin = CONC_NOTA_SIN.find(([re, c]) => re.test(t) && todos.has(c));
+  return sin ? sin[1] : null;
+}
+function concNotaMes(mov){
+  const t = String(mov.nota||'').toUpperCase(); if(!t) return null;
+  const i = CONC_MESES.findIndex((m, k) => k && new RegExp('\\b'+m.toUpperCase()+'\\b').test(t));
+  if(i < 1) return null;
+  const [y, mm] = mov.fecha.split('-').map(Number);
+  return `${i > mm + 1 ? y-1 : y}-${String(i).padStart(2,'0')}`;
+}
+function concNotaSucursal(mov){
+  const t = String(mov.nota||'').toUpperCase();
+  if(/GUAYMAS|\bGYS\b/.test(t)) return 1;
+  if(/\bSC\b|SAN CARLOS/.test(t)) return 2;
+  return null;
+}
+
 function concProveedor(mov){
+  /* La nota de Karen manda: "RODRIGO ZENA" puede ser quesos o Sams, pero la
+     nota dice cuál. */
+  const porNota = concNotaConcepto(mov);
+  if(porNota) return porNota;
   const k = concBenClave(mov.beneficiario || mov.concepto);
   if(!k) return null;
   const votos = {};
@@ -497,7 +553,7 @@ async function concDejaPend(movId, nota){
   const ym = mov.fecha.slice(0,7), P = concMeses[ym]; if(!P) return;
   P.formato = P.formato || {}; P.formato._concChk = P.formato._concChk || {};
   P.formato._concChk[movId] = {nota: nota||'', monto: mov.monto, fecha: mov.fecha,
-    ben: mov.beneficiario||'', concepto: mov.concepto||'', por: user.name, cuando: new Date().toISOString()};
+    ben: mov.beneficiario||'', concepto: mov.concepto||'', nota_banco: mov.nota||'', por: user.name, cuando: new Date().toISOString()};
   render(); toast('Quedó pendiente para checar con Karen');
   try{ await concGuarda(ym); }catch(e){ toast('No se pudo guardar — revisa tu conexión'); }
 }
@@ -555,7 +611,7 @@ async function concPendPDF(){
   };
   cab();
   for(const x of lista){
-    const ben = doc.splitTextToSize(`${x.ben||''}${x.concepto && x.concepto!==x.ben ? ' · '+x.concepto : ''}`, W-M-210-(M+70)-10);
+    const ben = doc.splitTextToSize(`${x.ben||''}${x.nota_banco ? ' · "'+x.nota_banco+'"' : (x.concepto && x.concepto!==x.ben ? ' · '+x.concepto : '')}`, W-M-210-(M+70)-10);
     const nota = doc.splitTextToSize(x.nota || '', 140);
     const alto = Math.max(ben.length, nota.length, 1) * 11 + 18;
     if(y + alto > H - 50){ doc.addPage(); enc(); y = 88; cab(); }
@@ -799,6 +855,7 @@ async function concConfirma(movId, clave, ym, nota){
   const mov = concEdo.movs.find(m=>m.id===movId);
   P.formato._conc[clave] = {mov: movId, fecha_banco: mov?.fecha, monto: mov?.monto,
                             ben: mov ? (mov.beneficiario || mov.concepto || '') : '',
+                            nota_banco: mov ? (mov.nota || '') : '',
                             por: user.name, cuando: new Date().toISOString()};
   P.formato[clave] = { ...(P.formato[clave]||{}), bg: CONC_COLOR };
   if(nota) P.formato[clave].nota = nota;
@@ -939,6 +996,7 @@ function concView(){
     .conc-mov{border:1px solid #E1DCD0;border-radius:11px;padding:11px 13px;margin-bottom:8px;background:var(--card)}
     .conc-mov.sin{border-left:4px solid #C0261F}
     .conc-nota{flex:0 1 260px;min-width:160px;padding:6px 8px;border:1px solid #D8D2C4;border-radius:7px;font-family:inherit;font-size:12.5px}
+    .conc-notak{font-size:12px;font-weight:700;color:#1B4FA8;background:#EAF1FD;border-radius:6px;padding:2px 7px}
     .conc-sec{display:flex;flex-direction:column;gap:2px;margin:16px 0 8px;padding-bottom:6px;border-bottom:2px solid #E1DCD0;font-size:14px}
     .conc-mov.pend{border-left:4px solid #E0A100;background:#FFFCF3}
     .conc-mov.ign{border-left:4px solid #8A8F98;opacity:.8}
@@ -1073,6 +1131,8 @@ function concView(){
       <div class="conc-top">
         <span class="mnt">${money(mov.monto)}</span>
         <span class="ben">${esc(mov.beneficiario || mov.concepto)}</span>
+        ${mov.nota ? `<span class="conc-notak" title="Nota de la transferencia">📝 ${esc(mov.nota)}</span>` : ''}
+        ${concNotaSucursal(mov) && concNotaSucursal(mov) !== finLoc ? `<span class="conc-chip" style="color:#8A5A00;background:#FFE7B0">📍 la nota dice ${esc((LOCS[concNotaSucursal(mov)]||'').replace(/^Boye's\s*/,''))}</span>` : ''}
         ${concChip(estado)}
         <span class="fch">${esc(mov.fecha)} · ${esc(mov.concepto)}</span>
       </div>`;
