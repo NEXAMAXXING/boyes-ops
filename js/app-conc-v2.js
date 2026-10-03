@@ -75,6 +75,8 @@ function concLee(lineas, anio){
     if((m = l.match(/SALDO ACTUAL\s+([\d,]+\.\d{2})/i)))    primero('saldo_actual',   numMX(m[1]));
     if((m = l.match(/\bABONOS\s+([\d,]+\.\d{2})/i)))        primero('abonos', numMX(m[1]));
     if((m = l.match(/\bCARGOS\s+([\d,]+\.\d{2})/i)))        primero('cargos', numMX(m[1]));
+    /* "COMISIONES EFECTIVAMENTE COBRADAS ... EN EL PERIODO 9,419.71" */
+    if((m = l.match(/EN EL PERIODO\s+([\d,]+\.\d{2})/i)))  primero('comisiones', numMX(m[1]));
 
     /* El día tiene que ir SOLO: sin el lookahead, "ABR. 4202626514 ..." le
        arrancaba el "42" al número de referencia y salían fechas de abril 42. */
@@ -611,6 +613,37 @@ async function concMitadOtra(ym, nom, mitad, movId){
   }catch(e){ toast('No se pudo guardar en la otra sucursal'); }
 }
 
+/* Comisiones bancarias del mes: todas las "tasa de descuento" de la terminal
+   (crédito, débito, AMEX) más su IVA y cualquier otra comisión. En la planilla
+   van juntas en el gasto fijo COMISIONES BANCARIAS del mes del estado. */
+function concComisiones(){
+  if(!concEdo) return null;
+  const lista = concEdo.movs.filter(m => m.tipo==='cargo' && m.clase==='comision' && m.fecha.slice(0,7)===concMes);
+  const suma = Math.round(lista.reduce((s,m)=>s+m.monto,0)*100)/100;
+  const dec = (concEdo.declarado||{}).comisiones;
+  const grupos = {};
+  lista.forEach(m => {
+    const c = m.concepto.toUpperCase();
+    const k = /AMEX/.test(c) ? 'AMEX' : /DEBITO/.test(c) ? 'Débito' : /CREDITO/.test(c) ? 'Crédito' : 'Otras comisiones';
+    grupos[k] = (grupos[k]||0) + m.monto;
+  });
+  return {lista, suma, dec, grupos, monto: (dec && dec > 0) ? dec : suma};
+}
+async function concComAnota(monto){
+  const ym = concMes, P = concMeses[ym]; if(!P) return;
+  const nom = 'COMISIONES BANCARIAS', k = `f|${nom}|monto`;
+  P.gastos_fijos = P.gastos_fijos || {};
+  P.gastos_fijos[nom] = { ...(P.gastos_fijos[nom]||{}), monto, pagado: true };
+  P.formato = P.formato || {};
+  P.formato[k] = { ...(P.formato[k]||{}), bg: CONC_COLOR, nota: 'Del estado de cuenta (tasa de descuento + IVA)' };
+  P.formato._conc = P.formato._conc || {};
+  P.formato._conc[k] = { mov: 'comisiones-'+ym, monto, por: user.name, cuando: new Date().toISOString() };
+  concPend[ym] = concPend[ym] || {}; concPend[ym].gf = concPend[ym].gf || {};
+  concPend[ym].gf[nom] = { ...(concPend[ym].gf[nom]||{}), monto, pagado: true };
+  render(); toast('Comisiones anotadas en la planilla');
+  try{ await concGuarda(ym); }catch(e){ toast('No se pudo guardar — revisa tu conexión'); }
+}
+
 /* "Mover de renglón": Karen lo apuntó en otro concepto. Se quita de ahí y se
    pone en el concepto del proveedor, mismo día, ya con el monto del banco. */
 async function concMueve(movId, ym, claveVieja, catNueva){
@@ -1050,6 +1083,26 @@ function concView(){
   if(!hay) h += `<p class="hint">Nada en este filtro.</p>`;
   h += `</div>`;
 
+  /* ---- comisiones bancarias ---- */
+  const com = concComisiones();
+  if(com && (com.suma > 0 || com.dec)){
+    const P = concMeses[concMes] || {};
+    const enPla = planN(((P.gastos_fijos||{})['COMISIONES BANCARIAS']||{}).monto);
+    const ok = Math.abs(enPla - com.monto) < 0.01;
+    h += `<div class="panel"><div class="d-h3">Comisiones bancarias · ${concNomMes(concMes)}</div>
+      <div class="conc-res">
+        <div class="conc-k" style="border-left-color:#C0261F"><div class="l">Del estado de cuenta</div><div class="v">${money(com.monto)}</div>
+          <div class="hint" style="margin:2px 0 0">${com.lista.length} cargos${com.dec?` · el banco declara ${money(com.dec)}`:''}</div></div>
+        <div class="conc-k" style="border-left-color:${ok?'#0B6E3F':'#E0A100'}"><div class="l">En la planilla</div><div class="v">${enPla?money(enPla):'—'}</div>
+          <div class="hint" style="margin:2px 0 0">COMISIONES BANCARIAS (gasto fijo)</div></div>
+      </div>
+      <p class="hint" style="margin:0 0 8px">${Object.entries(com.grupos).map(([k,v])=>`${k}: ${money(Math.round(v*100)/100)}`).join(' · ')} (incluye IVA)
+        ${com.dec && Math.abs(com.dec - com.suma) > 0.5 ? `<br>Sumé ${money(com.suma)} en cargos de comisión; el banco declara ${money(com.dec)}. Se usa lo que declara el banco.` : ''}</p>
+      ${ok ? `<p style="margin:0;font-weight:700;color:#0B6E3F">✓ Ya está en la planilla y en naranja.</p>`
+           : `<button class="btn-primary" data-ccom="${com.monto}">Anotar ${money(com.monto)} en COMISIONES BANCARIAS de ${concNomMes(concMes)}</button>`}
+    </div>`;
+  }
+
   /* ---- terminal ---- */
   const tj = concTarjeta();
   if(tj.length){
@@ -1150,6 +1203,7 @@ function wireConc(){
   document.querySelectorAll('[data-cmas]').forEach(b=>b.addEventListener('click', ()=>{
     const box = document.querySelector(`[data-cmasbox="${CSS.escape(b.dataset.cmas)}"]`);
     if(box){ box.hidden = !box.hidden; b.textContent = box.hidden ? 'Más opciones ▾' : 'Menos ▴'; } }));
+  document.querySelectorAll('[data-ccom]').forEach(b=>b.addEventListener('click', ()=>concComAnota(Number(b.dataset.ccom))));
   document.querySelectorAll('[data-cpok]').forEach(b=>b.addEventListener('click', ()=>{
     const id = b.dataset.cpok; concDejaPend(id, _v('data-cpnew', id).trim()); }));
   document.querySelectorAll('[data-cpquita]').forEach(b=>b.addEventListener('click', ()=>concQuitaPend(b.dataset.cpquita)));
