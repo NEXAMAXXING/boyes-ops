@@ -1143,6 +1143,8 @@ function concView(){
     .conc-mov.sin{border-left:4px solid #C0261F}
     .conc-nota{flex:0 1 260px;min-width:160px;padding:6px 8px;border:1px solid #D8D2C4;border-radius:7px;font-family:inherit;font-size:12.5px}
     .conc-notak{font-size:12px;font-weight:700;color:#1B4FA8;background:#EAF1FD;border-radius:6px;padding:2px 7px}
+    .conc-lista{max-height:68vh;overflow-y:auto;overscroll-behavior:contain;padding-right:6px;border-bottom:1px solid #E1DCD0}
+    .conc-lista::-webkit-scrollbar{width:8px}.conc-lista::-webkit-scrollbar-thumb{background:#CFC8B8;border-radius:4px}
     .conc-sec{display:flex;flex-direction:column;gap:2px;margin:16px 0 8px;padding-bottom:6px;border-bottom:2px solid #E1DCD0;font-size:14px}
     .conc-mov.pend{border-left:4px solid #E0A100;background:#FFFCF3}
     .conc-mov.ign{border-left:4px solid #8A8F98;opacity:.8}
@@ -1273,6 +1275,9 @@ function concView(){
   hay = true;
   if(titulo) h += `<div class="conc-sec"><b>${titulo} · ${visibles.length}</b>${ayuda?`<span class="hint">${ayuda}</span>`:''}
     ${sec==='pend'?`<button class="btn-primary" id="concPendPDF" style="align-self:flex-start;margin-top:6px">📄 PDF de pendientes para Karen</button>`:''}</div>`;
+  /* Cada sección se desplaza sola: la página no crece a 100 tarjetas y las
+     demás secciones (y el cuadre) quedan a la mano. */
+  h += `<div class="lista-larga conc-lista" data-csec="${sec}">`;
   for(const {mov, estado} of visibles){
     const cls = estado==='confirmado'?'ok':(estado==='sin_apunte'?'sin':(estado==='ignorado'?'ign':(estado==='pendiente'?'pend':'prop')));
     h += `<div class="conc-mov ${cls}">
@@ -1397,6 +1402,7 @@ function concView(){
     }
     h += `</div>`;
   }
+  h += `</div>`;
   }
   if(!hay) h += `<p class="hint">Nada en este filtro.</p>`;
   h += `</div>`;

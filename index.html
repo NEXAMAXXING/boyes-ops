@@ -1159,6 +1159,8 @@ function ticketCard(t){
 function render(){
   const _sel = '.emp-scroll,.res-wrap,.lista-larga';
   const _scrolls = [...document.querySelectorAll(_sel)].map(e=>[e.scrollTop, e.scrollLeft]);
+  /* Las listas con nombre (data-csec) recuerdan su scroll por nombre, no por posición. */
+  const _porNombre = {}; document.querySelectorAll('[data-csec]').forEach(e=>{ _porNombre[e.dataset.csec] = e.scrollTop; });
   /* Repintar no debe mover la página: se guarda dónde estaba y se regresa ahí.
      Solo si sigues en la misma pantalla; al cambiar de sección se empieza arriba. */
   const _firma = [tab, finSub, planTab, herrSub, mantSub, finLoc].join('|');
@@ -1174,8 +1176,10 @@ function render(){
     if(_m) _m.style.minHeight = '';
     if(_misma && Math.abs(window.scrollY - _wy) > 2) window.scrollTo(_wx, _wy);
     document.querySelectorAll(_sel).forEach((e,i)=>{
+      if(e.dataset && e.dataset.csec) return;
       if(_scrolls[i]){ e.scrollTop = _scrolls[i][0]; e.scrollLeft = _scrolls[i][1]; }
     });
+    document.querySelectorAll('[data-csec]').forEach(e=>{ if(_porNombre[e.dataset.csec]!=null) e.scrollTop = _porNombre[e.dataset.csec]; });
   });
 }
 function renderCore(){
@@ -2445,7 +2449,7 @@ async function exportPlanExcel(){
 <script src="/js/app-hor-v2.js" defer></script>
 <script src="/js/app-ped-v2.js" defer></script>
 <script src="/js/app-ban-v2.js" defer></script>
-<script src="/js/app-conc-v2.js?v=23" defer></script>
+<script src="/js/app-conc-v2.js?v=24" defer></script>
 <script src="/js/app-pvta-v2.js" defer></script>
 <!-- El ?v= no es decoración: sin él el navegador se queda con la copia vieja
      y uno cree que desplegó algo que el usuario nunca vio. Súbelo al cambiar. -->
