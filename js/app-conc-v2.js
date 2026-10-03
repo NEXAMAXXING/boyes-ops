@@ -484,7 +484,9 @@ function concProveedor(mov){
   }
   const mejor = Object.entries(votos).sort((a,b)=>b[1]-a[1])[0];
   if(mejor) return mejor[0];
-  const t = (mov.beneficiario + ' ' + mov.concepto).toUpperCase();
+  /* El "(TELMEX-1234)" de un traspaso es el NOMBRE DE LA CUENTA de la
+     persona, no a qué se le pagó: no cuenta para adivinar el concepto. */
+  const t = ((mov.beneficiario||'').replace(/\([^)]*-\d{3,}\)/g,'') + ' ' + mov.concepto).toUpperCase();
   const sem = CONC_SEMILLA.find(([re]) => re.test(t));
   return sem ? sem[1] : null;
 }
@@ -1500,7 +1502,7 @@ function concView(){
       h += `<div class="conc-cand">
         <select data-conccand="${esc(mov.id)}">
           ${cand.slice(0,25).map((c,i)=>`<option value="${esc(c.ym)}|${esc(c.clave)}"${i?'':' selected'}>
-            ${c.otro?`⚠️ Karen lo puso en ${esc(c.cat)} (va en ${esc(c.otro)}) · `:''}${c.naranjaExcel?'🟧 ya estaba en naranja (Excel) · ':''}${c.aprox?'≈ ':''}${esc(concEtiqueta(c, mov))} · ${c.aprox?`Karen puso ${money(c.monto)} → queda ${money(mov.monto)}`:money(c.monto)}${c.fijo||c.aprox?'':` · ${concDiasTxt(c, mov)}`}
+            ${c.otro?`Karen lo puso en ${esc(c.cat)} — se queda ahí · `:''}${c.naranjaExcel?'🟧 ya estaba en naranja (Excel) · ':''}${c.aprox?'≈ ':''}${esc(concEtiqueta(c, mov))} · ${c.aprox?`Karen puso ${money(c.monto)} → queda ${money(mov.monto)}`:money(c.monto)}${c.fijo||c.aprox?'':` · ${concDiasTxt(c, mov)}`}
           </option>`).join('')}
           ${(() => { const K = concProveedor(mov); const dd = mov.fecha.slice(8,10)+' '+CONC_MESES[Number(mov.fecha.slice(5,7))].slice(0,3);
             const lista = [...new Set([...(K?[K]:[]), ...(typeof PLAN_GV!=='undefined'?PLAN_GV:[])])];
