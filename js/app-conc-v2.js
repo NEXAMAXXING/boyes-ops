@@ -48,6 +48,10 @@ function concEsRuido(l){
   if(/^(BBVA|BANORTE|SANTANDER|CITI|BAJIO|STP|HSBC|SCOTIABANK|AZTECA|INBURSA|BANCOPPEL|AFIRME|MIFEL|MULTIVA)\b.*\d{10,}/i.test(l)) return true;
   if(/^\d{10,}$/.test(l)) return true;
   if(/PAGO EN UNA SOLA EXHIBICION|Tasa IVA|Página|ESTADO DE CUENTA|www\.|Banco Inbursa/i.test(l)) return true;
+  /* El pie de página del banco (dirección de Inbursa, tus datos, el RFC):
+     cuando un cargo cae al final de la hoja, lo de abajo es esto y no un
+     beneficiario. */
+  if(/PASEO DE LAS PALMAS|LOMAS DE CHAPULTEPEC|MIGUEL HIDALGO|CIUDAD DE MEXICO|C\.R\.\s*\d|RFC\s*BII|INSTITUCION DE BANCA|GRUPO FINANCIERO|LOTE \d+|EL CRESTON|SONORA, MEX|^\d{5}\s+\d{6,}-F$|RFC:\s*ZEZR/i.test(l)) return true;
   /* Basura de la marca de agua. Trae símbolos que ningún nombre de proveedor
      usa, y muy pocas letras en proporción a su largo. */
   if(/[{}\[\]%;+?^~|<>\\]/.test(l)) return true;
@@ -132,7 +136,10 @@ function concLee(lineas, anio){
     /* Beneficiario: las dos o tres líneas siguientes, saltando el renglón del
        banco destino y la basura de la marca de agua. */
     let beneficiario = '';
-    for(let k=1; k<=4 && i+k<lineas.length; k++){
+    /* Solo las transferencias traen beneficiario abajo. Una compra con
+       tarjeta ("GASOL LA FLECHA E MX") ya dice en su concepto dónde fue. */
+    const conBenef = /TRANSFERENCIA|SPEI|TRASPASO|CARGO EN CUENTA|DOMICILIACION|PAGO\b/i.test(concepto);
+    for(let k=1; conBenef && k<=4 && i+k<lineas.length; k++){
       const sig = String(lineas[i+k]).replace(/\s+/g,' ').trim().replace(/^\d{1,2}\s+/,'');
       if(/^[A-Z]{3}\.\s*\d{0,2}/.test(sig)) break;      // ya empezó el siguiente movimiento
       if(concEsRuido(sig)) continue;
@@ -318,7 +325,8 @@ const CONC_SEMILLA = [            // para arrancar mientras se junta historia
   [/SURTICHEF/, 'SURTICHEF'],
   [/MEGACABLE/, 'MEGACABLE'],
   [/TELMEX|TELEFONOS DE MEXICO/, 'TELMEX'],
-  [/SIPARE/, 'IMSS']
+  [/SIPARE/, 'IMSS'],
+  [/GASOL|GASOLINER|PEMEX|\bOXXO GAS\b|\bG500\b|\bARCO\b|\bBP\b|SHELL|MOBIL|\bREDCO\b|\bHIDROSINA\b/, 'GASOLINA']
 ];
 function concBenClave(t){
   return String(t||'').toUpperCase()
