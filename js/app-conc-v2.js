@@ -159,7 +159,7 @@ function concLee(lineas, anio){
     }
 
     movs.push({
-      nota,
+      nota, tarjeta: !conBenef && tipo === 'cargo',
       id: `${anio}-${String(mesN).padStart(2,'0')}-${String(dia).padStart(2,'0')}|${ref||i}|${monto.toFixed(2)}`,
       fecha: `${anio}-${String(mesN).padStart(2,'0')}-${String(dia).padStart(2,'0')}`,
       dia, mes: mesN, ref, concepto: concepto.slice(0,120), beneficiario,
@@ -268,7 +268,14 @@ function concEtiqueta(c, mov){
 const CONC_ATRAS = 62;
 function concEnVentana(c, mov){
   const d = (new Date(mov.fecha+'T12:00:00') - new Date(c.fecha+'T12:00:00')) / 86400000;   // + = casilla antes del pago
+  /* Una compra con tarjeta (gasolinera, súper) se paga el mismo día que se
+     consume: solo se buscan casillas de ±3 días. */
+  if(mov.tarjeta) return Math.abs(d) <= 3;
   return d >= 0 ? d <= Math.max(CONC_ATRAS, concVentana) : -d <= concVentana;
+}
+function concDiasTxt(c, mov){
+  const d = Math.round((new Date(mov.fecha+'T12:00:00') - new Date(c.fecha+'T12:00:00')) / 86400000);
+  return d === 0 ? 'mismo día' : d > 0 ? `${d} día${d===1?'':'s'} antes del pago` : `${-d} día${d===-1?'':'s'} después del pago`;
 }
 
 function concDias(a, b){
@@ -1181,8 +1188,11 @@ function concView(){
       h += `<div class="conc-cand">
         <select data-conccand="${esc(mov.id)}">
           ${cand.slice(0,25).map((c,i)=>`<option value="${esc(c.ym)}|${esc(c.clave)}"${i?'':' selected'}>
-            ${c.aprox?'≈ ':''}${esc(concEtiqueta(c, mov))} · ${c.aprox?`Karen puso ${money(c.monto)} → queda ${money(mov.monto)}`:money(c.monto)}${c.fijo||c.aprox?'':` · ${concDias(c.fecha,mov.fecha)} días antes`}
+            ${c.aprox?'≈ ':''}${esc(concEtiqueta(c, mov))} · ${c.aprox?`Karen puso ${money(c.monto)} → queda ${money(mov.monto)}`:money(c.monto)}${c.fijo||c.aprox?'':` · ${concDiasTxt(c, mov)}`}
           </option>`).join('')}
+          ${(() => { const K = concProveedor(mov); const dd = mov.fecha.slice(8,10)+' '+CONC_MESES[Number(mov.fecha.slice(5,7))].slice(0,3);
+            const lista = [...new Set([...(K?[K]:[]), ...(typeof PLAN_GV!=='undefined'?PLAN_GV:[])])];
+            return `<optgroup label="✏️ No es ninguna: capturarlo nuevo el ${dd}">${lista.map(c=>`<option value="CAP|${esc(c)}">✏️ Capturar en ${esc(c)} · ${dd}</option>`).join('')}</optgroup>`; })()}
         </select>
         <input type="text" class="conc-nota" data-cnotaprop="${esc(mov.id)}" placeholder="💬 Nota (opcional)">
         <button class="btn-primary" data-concok="${esc(mov.id)}">Confirmar</button>
@@ -1356,6 +1366,13 @@ function wireConc(){
   document.querySelectorAll('[data-concok]').forEach(b=>b.addEventListener('click', async ()=>{
     const sel = document.querySelector(`[data-conccand="${CSS.escape(b.dataset.concok)}"]`);
     if(!sel || !sel.value) return;
+    if(sel.value.startsWith('CAP|')){
+      const mov = concEdo.movs.find(m=>m.id===b.dataset.concok);
+      const nota = (document.querySelector(`[data-cnotaprop="${CSS.escape(b.dataset.concok)}"]`)?.value || '').trim();
+      b.disabled = true; b.textContent = 'Guardando…';
+      if(mov) await concCaptura(mov.id, sel.value.slice(4), mov.fecha, nota);
+      return;
+    }
     const [ym, ...resto] = sel.value.split('|');
     b.disabled = true; b.textContent = 'Guardando…';
     const nota = (document.querySelector(`[data-cnotaprop="${CSS.escape(b.dataset.concok)}"]`)?.value || '').trim();
