@@ -1520,9 +1520,9 @@ function planSemHoy(weeks){
 
 /* Sacados del propio archivo, no aproximados: son los rellenos que trae su
    Excel de San Carlos 2026. */
-const P_AZUL = '#00B0F0';   // totales: columna TOTAL, VENTA TOTAL DIARIA, TOTAL DE GASTOS
-const P_NARA = '#FF9900';   // el total general de cada renglón de total
-const P_ROJO = '#FF0000';   // la columna del domingo en el bloque de gastos
+const P_AZUL = '#4FADEA';   // totales: columna TOTAL, VENTA TOTAL DIARIA, TOTAL DE GASTOS
+const P_NARA = '#F19E38';   // el total general de cada renglón de total
+const P_ROJO = '#EA3323';   // la columna del domingo en el bloque de gastos
 
 function planViewMain(){
   const weeks = planWeeks(planMonth);
@@ -1635,6 +1635,41 @@ function planViewMain(){
     .famc .v{font-size:17px;font-weight:900;font-variant-numeric:tabular-nums;margin-top:1px}
     .famc .s{font-size:11px;color:#7A7365;font-weight:600}
     @media(max-width:640px){ .pt{min-width:700px} .pt .cl{width:150px;font-size:12px;padding:4px 8px} }
+
+    /* ===== Lo más parecido a su hoja de Excel =====
+       Rod lo pidió así: no la marca, la plantilla. Fondo blanco, cuadrícula
+       negra delgada, letra Arial, columna TOTAL y renglones de total en el
+       azul de la hoja, domingo en rojo lleno en los gastos. */
+    #wkSlide.wk{border:1px solid #000;border-radius:0;box-shadow:none;background:#fff}
+    #wkSlide .wk-h{background:#fff;color:#000;border-bottom:1px solid #000;letter-spacing:0;font-size:18px}
+    #wkSlide .wk-h .sub{color:#555;font-size:12px}
+    #wkSlide .wk-h .tot{color:#000}
+    #wkSlide .pt{font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#000}
+    #wkSlide .pt th,#wkSlide .pt td{border-right:1px solid #000 !important;border-bottom:1px solid #000 !important}
+    #wkSlide .pt thead th,#wkSlide .pt thead th.fin,#wkSlide .pt thead th.dom{background:#fff !important;color:#000 !important;
+       font-weight:700;text-align:left;padding:4px 6px;border-bottom:2px solid #000 !important}
+    #wkSlide .pt thead th span{font-weight:700}
+    #wkSlide .pt thead .cl{background:#fff !important;color:#000 !important}
+    #wkSlide .pt thead th.tc{background:${P_AZUL} !important;color:#000 !important;text-align:right}
+    #wkSlide .pt .cl,#wkSlide .pt tbody .cl{background:#fff !important;color:#000;font-weight:700;text-transform:uppercase;
+       font-size:12.5px;box-shadow:1px 0 0 #000}
+    #wkSlide .pt tbody td,#wkSlide .pt .fin{background:#fff}
+    #wkSlide .pt tbody tr:hover td{background-color:#fff}
+    #wkSlide .pt .sh td{background:#fff !important;color:#000 !important;border-bottom:2px solid #000 !important}
+    #wkSlide .pt .sh td b{padding:7px 10px;font-weight:900;letter-spacing:.04em}
+    #wkSlide .pt .tc,#wkSlide .pt tbody td.tc{background:${P_AZUL} !important;color:#000;font-weight:700;box-shadow:none}
+    #wkSlide .pt tr.tot td,#wkSlide .pt tr.tot td.cl{background:${P_AZUL} !important;color:#000;font-weight:700}
+    #wkSlide .pt tr.tot td.tc{background:${P_NARA} !important;color:#000}
+    #wkSlide .pt tbody tr.gas td.dom{background:${P_ROJO} !important}
+    #wkSlide .pt tbody tr.gas:hover td.dom{background:${P_ROJO} !important}
+    #wkSlide .pt tbody tr.gas td.dom input{color:#000}
+    #wkSlide .pt input{color:#000;font-family:Arial,Helvetica,sans-serif;font-weight:400;border-radius:0}
+    #wkSlide .pt input:hover{background:transparent}
+    #wkSlide .pt input:focus{background:#fff;outline:2px solid #1A73E8;outline-offset:-2px}
+    #wkSlide .pt .wini,#wkSlide .pt thead th.wini{box-shadow:inset 2px 0 0 #000}
+    #wkSlide .pt tr.pt-fila td,#wkSlide .pt td.pt-col{background-color:#E8F0FE}
+    #wkSlide .pt tr.pt-fila .cl{background:#E8F0FE !important}
+    #wkSlide .fam{background:transparent !important;color:#000;border:1px solid #000;border-radius:0;font-weight:700}
   </style>`;
 
   /* ---------- un bloque por semana ---------- */
