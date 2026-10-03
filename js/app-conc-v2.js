@@ -174,8 +174,34 @@ function concCasillas(){
         });
       }
     }
+    /* Gastos fijos (renta, vehículo, luz…): no tienen día, son del mes. Se
+       ofrecen para pagos del mismo mes, del mes anterior (pagado por
+       adelantado) o del siguiente (pagado tarde). */
+    for(const [nom, f] of Object.entries(P.gastos_fijos||{})){
+      const monto = planN((f||{}).monto);
+      if(!monto) continue;
+      const clave = `f|${nom}|monto`;
+      out.push({ ym, cat: nom, dia: null, fijo: true, monto, clave,
+        fecha: `${ym}-01`, usada: conc[clave] || null });
+    }
   }
   return out;
+}
+
+function concMesDif(ymA, ymB){
+  const [a1,a2] = ymA.split('-').map(Number), [b1,b2] = ymB.split('-').map(Number);
+  return (a1*12+a2) - (b1*12+b2);
+}
+const CONC_MESES = ['','enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+function concNomMes(ym){ const [y,m] = ym.split('-').map(Number); return `${CONC_MESES[m]} ${y}`; }
+/* Cómo se nombra una casilla en pantalla. */
+function concEtiqueta(c, mov){
+  if(c.fijo){
+    const dm = mov ? concMesDif(c.ym, mov.fecha.slice(0,7)) : 0;
+    const nota = dm>0 ? ' (pagado por adelantado)' : (dm<0 ? ' (pagado tarde)' : '');
+    return `🔒 Gasto fijo ${c.cat} · ${concNomMes(c.ym)}${nota}`;
+  }
+  return `${c.cat} · ${c.dia} de ${c.ym}`;
 }
 
 function concDias(a, b){
@@ -186,14 +212,21 @@ function concDias(a, b){
    ventana, y —lo importante— que NADIE más los haya consumido. Se ordenan por
    cercanía en días y por parecido del nombre del beneficiario con el concepto. */
 function concCandidatos(mov, casillas){
-  const cand = casillas.filter(c =>
-    Math.abs(c.monto - mov.monto) < 0.01 &&
+  const libre = c =>
     (!c.usada || c.usada.mov === mov.id) &&
-    concDias(c.fecha, mov.fecha) <= concVentana
-  );
+    (c.fijo ? Math.abs(concMesDif(c.ym, mov.fecha.slice(0,7))) <= 1
+            : concDias(c.fecha, mov.fecha) <= concVentana);
+  /* Si no hay monto exacto, se ofrecen los parecidos (Karen a veces redondea:
+     765 en vez de 765.88). Salen marcados y al confirmar se corrige la
+     casilla al monto del banco. */
+  const holg = Math.max(5, mov.monto * 0.005);
+  const exactos = casillas.filter(c => Math.abs(c.monto - mov.monto) < 0.01 && libre(c));
+  const cand = exactos.length ? exactos
+    : casillas.filter(c => !c.fijo && Math.abs(c.monto - mov.monto) <= holg && libre(c))
+              .map(c => ({...c, aprox: true}));
   const nom = (mov.beneficiario + ' ' + mov.concepto).toUpperCase();
   const puntos = c => {
-    let p = concDias(c.fecha, mov.fecha);
+    let p = c.fijo ? Math.abs(concMesDif(c.ym, mov.fecha.slice(0,7)))*15 : concDias(c.fecha, mov.fecha);
     const pal = c.cat.split(/[^A-ZÑ]+/i).filter(x=>x.length>3);
     if(pal.some(x => nom.includes(x.toUpperCase()))) p -= 100;   // el nombre coincide: gana
     return p;
@@ -204,6 +237,7 @@ function concCandidatos(mov, casillas){
 function concEstadoDe(mov, casillas){
   if(['comision','traspaso','rendimiento','deposito_tarjeta'].includes(mov.clase)) return 'aparte';
   if(mov.tipo === 'abono') return 'aparte';
+  if(concIgnorado(mov)) return 'ignorado';
   const yaUsada = casillas.find(c => c.usada && c.usada.mov === mov.id);
   if(yaUsada) return 'confirmado';
   return concCandidatos(mov, casillas).length ? 'propuesto' : 'sin_apunte';
@@ -232,8 +266,8 @@ async function concCargaMeses(){
     for(const ym of yms){
       const row = (data||[]).find(r=>r.year_month===ym);
       concMeses[ym] = row
-        ? {ventas:row.ventas||{}, gastos_var:row.gastos_var||{}, formato:row.formato||{}}
-        : {ventas:{}, gastos_var:{}, formato:{}};
+        ? {ventas:row.ventas||{}, gastos_var:row.gastos_var||{}, gastos_fijos:row.gastos_fijos||{}, formato:row.formato||{}}
+        : {ventas:{}, gastos_var:{}, gastos_fijos:{}, formato:{}};
     }
   }catch(e){ concError = 'No pude leer las planillas de esos meses'; }
   finally{ concCargando = false; }
@@ -243,16 +277,28 @@ async function concCargaMeses(){
 /* Guardar un mes concreto. Se manda solo lo que esta pantalla toca —formato,
    que es donde viven el color y la marca de conciliado— para no pisar una
    captura que Karen esté haciendo al mismo tiempo en otra pestaña. */
+/* Cambios puntuales que esta pantalla le hace a la captura (no solo al
+   formato): una casilla de gasto nueva o un gasto fijo marcado como pagado.
+   Se aplican sobre lo que haya en la base en ese momento, celda por celda. */
+let concPend = {};   // ym -> {gv:{cat:{dia:monto}}, gf:{nombre:{...}}}
 async function concGuarda(ym){
   const P = concMeses[ym];
   if(!P) return;
   const {data} = await sb.from('planilla_months').select('*')
     .eq('location_id', finLoc).eq('year_month', ym).limit(1);
   const base = (data && data[0]) || {ventas:{}, gastos_var:{}, gastos_fijos:{}, banco:{}};
+  const gv = base.gastos_var||{}, gf = base.gastos_fijos||{};
+  const pend = concPend[ym] || {};
+  for(const [cat, dias] of Object.entries(pend.gv||{})){
+    gv[cat] = gv[cat] || {};
+    for(const [d, v] of Object.entries(dias)) gv[cat][d] = v;
+  }
+  for(const [nom, f] of Object.entries(pend.gf||{})) gf[nom] = { ...(gf[nom]||{}), ...f };
+  delete concPend[ym];
   await sb.from('planilla_months').upsert({
     location_id: finLoc, year_month: ym,
-    ventas: base.ventas||{}, gastos_var: base.gastos_var||{},
-    gastos_fijos: base.gastos_fijos||{}, banco: base.banco||{},
+    ventas: base.ventas||{}, gastos_var: gv,
+    gastos_fijos: gf, banco: base.banco||{},
     formato: P.formato||{},
     created_by: user.name, updated_at: new Date().toISOString()
   }, {onConflict:'location_id,year_month'});
@@ -261,8 +307,65 @@ async function concGuarda(ym){
      la pantalla y la mandaba hasta arriba en cada clic. */
   if(ym === planMonth && planData && planData.location_id === finLoc){
     planData.formato = JSON.parse(JSON.stringify(P.formato||{}));
-    if(planEdit) planEdit.formato = JSON.parse(JSON.stringify(P.formato||{}));
+    planData.gastos_var = JSON.parse(JSON.stringify(gv));
+    planData.gastos_fijos = JSON.parse(JSON.stringify(gf));
+    if(planEdit){
+      planEdit.formato = JSON.parse(JSON.stringify(P.formato||{}));
+      planEdit.gastos_var = JSON.parse(JSON.stringify(gv));
+      planEdit.gastos_fijos = JSON.parse(JSON.stringify(gf));
+    }
   }
+}
+
+/* "No va en la planilla": un retiro personal, un pago que no es del
+   restaurante… Se anota en el mes del movimiento para que no vuelva a salir
+   como pendiente, con quién lo decidió. */
+function concIgnorado(mov){
+  const P = concMeses[mov.fecha.slice(0,7)];
+  return P && P.formato && P.formato._concIgn ? P.formato._concIgn[mov.id] : null;
+}
+async function concIgnora(movId, nota){
+  const mov = concEdo.movs.find(m=>m.id===movId); if(!mov) return;
+  const ym = mov.fecha.slice(0,7), P = concMeses[ym]; if(!P) return;
+  P.formato = P.formato || {}; P.formato._concIgn = P.formato._concIgn || {};
+  P.formato._concIgn[movId] = {nota: nota||'', monto: mov.monto, fecha: mov.fecha, por: user.name, cuando: new Date().toISOString()};
+  render(); toast('Listo — ya no sale como pendiente');
+  try{ await concGuarda(ym); }catch(e){ toast('No se pudo guardar — revisa tu conexión'); }
+}
+async function concDesignora(movId){
+  const mov = concEdo.movs.find(m=>m.id===movId); if(!mov) return;
+  const ym = mov.fecha.slice(0,7), P = concMeses[ym];
+  if(P?.formato?._concIgn) delete P.formato._concIgn[movId];
+  render();
+  try{ await concGuarda(ym); }catch(e){ toast('No se pudo guardar — revisa tu conexión'); }
+}
+
+/* "Capturarlo aquí": el pago sí es gasto pero nadie lo apuntó. Se escribe en
+   la planilla (concepto y día que elijas) y queda confirmado de una vez. */
+async function concCaptura(movId, cat, fecha){
+  const mov = concEdo.movs.find(m=>m.id===movId); if(!mov || !cat || !fecha) return;
+  const ym = fecha.slice(0,7), d = String(Number(fecha.slice(8,10)));
+  if(!concMeses[ym]){ toast('Ese mes no está cargado aquí — usa una fecha de '+Object.keys(concMeses).join(', ')); return; }
+  const P = concMeses[ym];
+  P.gastos_var = P.gastos_var || {}; P.gastos_var[cat] = P.gastos_var[cat] || {};
+  const prev = planN(P.gastos_var[cat][d]);
+  if(prev){ toast(`${cat} del ${d} ya tiene ${money(prev)} — elige otro día o confírmalo contra esa casilla`); return; }
+  P.gastos_var[cat][d] = mov.monto;
+  concPend[ym] = concPend[ym] || {}; concPend[ym].gv = concPend[ym].gv || {};
+  (concPend[ym].gv[cat] = concPend[ym].gv[cat] || {})[d] = mov.monto;
+  await concConfirma(movId, `g|${cat}|${d}`, ym);
+}
+
+/* "Es gasto fijo": el monto puede no coincidir (subió la mensualidad). Se toma
+   el monto del banco como el real del mes y se marca pagado. */
+async function concAFijo(movId, nom, ym){
+  const mov = concEdo.movs.find(m=>m.id===movId); if(!mov || !nom || !ym) return;
+  const P = concMeses[ym]; if(!P) return;
+  P.gastos_fijos = P.gastos_fijos || {};
+  P.gastos_fijos[nom] = { ...(P.gastos_fijos[nom]||{}), monto: mov.monto };
+  concPend[ym] = concPend[ym] || {}; concPend[ym].gf = concPend[ym].gf || {};
+  concPend[ym].gf[nom] = { ...(concPend[ym].gf[nom]||{}), monto: mov.monto };
+  await concConfirma(movId, `f|${nom}|monto`, ym);
 }
 
 /* El color de "ya lo verifiqué yo" es el naranja del Excel de Rod, para que
@@ -279,6 +382,23 @@ async function concConfirma(movId, clave, ym){
   P.formato._conc[clave] = {mov: movId, fecha_banco: mov?.fecha, monto: mov?.monto,
                             por: user.name, cuando: new Date().toISOString()};
   P.formato[clave] = { ...(P.formato[clave]||{}), bg: CONC_COLOR };
+  if(clave.startsWith('g|') && mov){
+    const [, cat, d] = clave.split('|');
+    const cap = planN((P.gastos_var?.[cat]||{})[d]);
+    if(cap && Math.abs(cap - mov.monto) >= 0.01){
+      P.gastos_var[cat][d] = mov.monto;
+      concPend[ym] = concPend[ym] || {}; concPend[ym].gv = concPend[ym].gv || {};
+      (concPend[ym].gv[cat] = concPend[ym].gv[cat] || {})[d] = mov.monto;
+      P.formato._conc[clave].antes = cap;
+    }
+  }
+  if(clave.startsWith('f|')){
+    const nom = clave.slice(2, clave.lastIndexOf('|'));
+    P.gastos_fijos = P.gastos_fijos || {};
+    P.gastos_fijos[nom] = { ...(P.gastos_fijos[nom]||{}), pagado: true };
+    concPend[ym] = concPend[ym] || {}; concPend[ym].gf = concPend[ym].gf || {};
+    concPend[ym].gf[nom] = { ...(concPend[ym].gf[nom]||{}), pagado: true };
+  }
   /* Primero se pinta (al instante, sin moverse de lugar) y luego se guarda. */
   render();
   toast('Confirmado — la casilla quedó en naranja');
@@ -287,6 +407,12 @@ async function concConfirma(movId, clave, ym){
 
 async function concDeshace(clave, ym){
   const P = concMeses[ym]; if(!P) return;
+  if(clave.startsWith('f|')){
+    const nom = clave.slice(2, clave.lastIndexOf('|'));
+    if(P.gastos_fijos?.[nom]) P.gastos_fijos[nom].pagado = false;
+    concPend[ym] = concPend[ym] || {}; concPend[ym].gf = concPend[ym].gf || {};
+    concPend[ym].gf[nom] = { ...(concPend[ym].gf[nom]||{}), pagado: false };
+  }
   if(P.formato?._conc) delete P.formato._conc[clave];
   /* Se quita el azul, pero solo si es el azul de la conciliación: si Rod le
      puso otro color a mano, ese se respeta. */
@@ -381,6 +507,12 @@ function concView(){
                letter-spacing:.02em;white-space:nowrap}
     .conc-mov{border:1px solid #E1DCD0;border-radius:11px;padding:11px 13px;margin-bottom:8px;background:var(--card)}
     .conc-mov.sin{border-left:4px solid #C0261F}
+    .conc-mov.ign{border-left:4px solid #8A8F98;opacity:.8}
+    .conc-opc{display:flex;flex-direction:column;gap:6px;margin-top:8px}
+    .conc-o{display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:12.5px;padding:7px 9px;border:1px dashed #E1DCD0;border-radius:8px}
+    .conc-o b{min-width:170px}
+    .conc-o select,.conc-o input{padding:6px 8px;border:1px solid #D8D2C4;border-radius:7px;font-family:inherit;font-size:12.5px}
+    .conc-o input[type=text]{flex:1;min-width:180px}
     .conc-mov.ok{border-left:4px solid #0B6E3F}
     .conc-mov.prop{border-left:4px solid #E0A100}
     .conc-top{display:flex;align-items:baseline;gap:9px;flex-wrap:wrap}
@@ -478,7 +610,7 @@ function concView(){
   if(!visibles.length) h += `<p class="hint">Nada en este filtro.</p>`;
 
   for(const {mov, estado} of visibles){
-    const cls = estado==='confirmado'?'ok':(estado==='sin_apunte'?'sin':'prop');
+    const cls = estado==='confirmado'?'ok':(estado==='sin_apunte'?'sin':(estado==='ignorado'?'ign':'prop'));
     h += `<div class="conc-mov ${cls}">
       <div class="conc-top">
         <span class="mnt">${money(mov.monto)}</span>
@@ -490,7 +622,7 @@ function concView(){
     if(estado==='confirmado'){
       const c = casillas.find(x=>x.usada && x.usada.mov===mov.id);
       h += `<div class="conc-cand">
-        <span style="font-size:12.5px">Va contra <b>${esc(c.cat)}</b> del ${c.dia} de ${esc(c.ym)}
+        <span style="font-size:12.5px">Va contra <b>${esc(concEtiqueta(c, mov))}</b>
           — lo confirmaste ${c.usada.por?`(${esc(c.usada.por)})`:''}</span>
         <button class="btn-quiet" data-concdes="${esc(c.clave)}" data-concym="${c.ym}"
                 style="margin-left:auto">Deshacer</button></div>`;
@@ -499,14 +631,45 @@ function concView(){
       h += `<div class="conc-cand">
         <select data-conccand="${esc(mov.id)}">
           ${cand.slice(0,25).map((c,i)=>`<option value="${esc(c.ym)}|${esc(c.clave)}"${i?'':' selected'}>
-            ${esc(c.cat)} · ${c.dia} de ${esc(c.ym)} · ${money(c.monto)} (${concDias(c.fecha,mov.fecha)} días antes)
+            ${c.aprox?'≈ ':''}${esc(concEtiqueta(c, mov))} · ${money(c.monto)}${c.aprox?` (capturado ${money(c.monto)}, banco ${money(mov.monto)} — se corrige al confirmar)`:''}${c.fijo?'':` (${concDias(c.fecha,mov.fecha)} días antes)`}
           </option>`).join('')}
         </select>
         <button class="btn-primary" data-concok="${esc(mov.id)}">Confirmar</button></div>`;
+    } else if(estado==='ignorado'){
+      const ig = concIgnorado(mov);
+      h += `<div class="conc-cand">
+        <span style="font-size:12.5px">No va en la planilla${ig.nota?` — ${esc(ig.nota)}`:''} ${ig.por?`(${esc(ig.por)})`:''}</span>
+        <button class="btn-quiet" data-concdesig="${esc(mov.id)}" style="margin-left:auto">Deshacer</button></div>`;
     } else {
+      const ymMov = mov.fecha.slice(0,7);
+      const mesesF = Object.keys(concMeses).filter(ym => Math.abs(concMesDif(ym, ymMov)) <= 1).sort();
+      const fijos = [...new Set(mesesF.flatMap(ym => Object.keys(concMeses[ym].gastos_fijos||{})))]
+        .concat(typeof PLAN_GF!=='undefined' ? PLAN_GF : []).filter((x,i,a)=>a.indexOf(x)===i);
+      const cats = [...new Set([...(typeof PLAN_GV!=='undefined'?PLAN_GV:[]),
+        ...Object.values(concMeses).flatMap(P=>Object.keys(P.gastos_var||{}))])];
+      const sug = cats.find(c => c.split(/[^A-ZÑ]+/i).filter(x=>x.length>3)
+        .some(x => (mov.beneficiario+' '+mov.concepto).toUpperCase().includes(x.toUpperCase()))) || '';
+      const mid = esc(mov.id);
       h += `<div class="conc-cand" style="background:#FFF1EF">
         <span style="font-size:12.5px">No hay ninguna casilla de ese monto sin usar en ±${concVentana} días.
-        O no está capturado, o el monto no coincide.</span></div>`;
+        O no está capturado, o el monto no coincide. ¿Qué es?</span></div>
+      <div class="conc-opc">
+        <div class="conc-o"><b>🔒 Es gasto fijo</b>
+          <select data-cfnom="${mid}">${fijos.map(f=>`<option>${esc(f)}</option>`).join('')}</select>
+          <select data-cfym="${mid}">${mesesF.map(ym=>{
+            const dm = concMesDif(ym, ymMov);
+            return `<option value="${ym}"${dm===0?' selected':''}>${concNomMes(ym)}${dm>0?' (por adelantado)':dm<0?' (atrasado)':''}</option>`;}).join('')}</select>
+          <button class="btn-primary" data-cfok="${mid}">Aplicar</button>
+          <span class="hint">Lo marca pagado y deja ${money(mov.monto)} como monto real de ese mes.</span></div>
+        <div class="conc-o"><b>✏️ Capturarlo como gasto</b>
+          <select data-ccat="${mid}"><option value="">Concepto…</option>${cats.map(c=>`<option${c===sug?' selected':''}>${esc(c)}</option>`).join('')}</select>
+          <input type="date" data-cfec="${mid}" value="${esc(mov.fecha)}">
+          <button class="btn-primary" data-ccok="${mid}">Capturar</button>
+          <span class="hint">Lo escribe en la planilla ese día y queda confirmado.</span></div>
+        <div class="conc-o"><b>🚫 No va en la planilla</b>
+          <input type="text" data-cinota="${mid}" placeholder="¿Por qué? (personal, traspaso…)">
+          <button class="btn-quiet" data-ciok="${mid}">Marcar</button></div>
+      </div>`;
     }
     h += `</div>`;
   }
@@ -599,6 +762,16 @@ function wireConc(){
     b.disabled = true; b.textContent = 'Guardando…';
     await concConfirma(b.dataset.concok, resto.join('|'), ym);
   }));
+  const _v = (attr, id) => document.querySelector(`[${attr}="${CSS.escape(id)}"]`)?.value || '';
+  document.querySelectorAll('[data-cfok]').forEach(b=>b.addEventListener('click', ()=>{
+    const id = b.dataset.cfok; concAFijo(id, _v('data-cfnom', id), _v('data-cfym', id)); }));
+  document.querySelectorAll('[data-ccok]').forEach(b=>b.addEventListener('click', ()=>{
+    const id = b.dataset.ccok, cat = _v('data-ccat', id);
+    if(!cat){ toast('Elige el concepto'); return; }
+    concCaptura(id, cat, _v('data-cfec', id)); }));
+  document.querySelectorAll('[data-ciok]').forEach(b=>b.addEventListener('click', ()=>{
+    const id = b.dataset.ciok; concIgnora(id, _v('data-cinota', id)); }));
+  document.querySelectorAll('[data-concdesig]').forEach(b=>b.addEventListener('click', ()=>concDesignora(b.dataset.concdesig)));
   document.querySelectorAll('[data-concdes]').forEach(b=>b.addEventListener('click', async ()=>{
     b.disabled = true;
     await concDeshace(b.dataset.concdes, b.dataset.concym);
