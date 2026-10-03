@@ -2097,14 +2097,16 @@ function planViewF(){
   allCats.forEach(cat=>{
     const row=f[cat]||{};
     const monto=planN(row.monto);
-    const codigo=row.codigo||'';
+    const codigo=row.code||row.codigo||'';
+    /* El color de la casilla (naranja/rosa del Excel o de la conciliación). */
+    const fmF=(planEdit.formato||{})[`f|${cat}|monto`]||{};
     const bg=CODE_COLOR[codigo]||CODE_COLOR[''];
     total+=monto;
     h+=`<tr style="background:${bg}">
       <td style="font-weight:700;padding:5px 8px">${esc(cat)}</td>
       <td style="text-align:center;font-weight:800;font-size:11px;color:#555;padding:5px">${esc(codigo)}</td>
-      <td style="padding:3px"><input type="text" inputmode="decimal" class="nospin" data-pf="${esc(cat)}" data-pff="monto"
-          value="${monto||''}" placeholder="0" style="width:120px;background:transparent"></td>
+      <td style="padding:3px;${fmF.bg?`background:${fmF.bg} !important;`:''}"${fmF.nota?` title="💬 ${esc(fmF.nota)}"`:''}><input type="text" inputmode="decimal" class="nospin" data-pf="${esc(cat)}" data-pff="monto"
+          value="${monto||''}" placeholder="0" style="width:120px;background:transparent;${fmF.b?'font-weight:800;':''}"></td>
       <td style="text-align:center;padding:3px"><input type="checkbox" data-pf="${esc(cat)}" data-pff="pagado"
           ${row.pagado?'checked':''} style="width:22px;height:22px"></td></tr>`;
   });
