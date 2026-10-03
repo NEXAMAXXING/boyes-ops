@@ -1641,6 +1641,14 @@ function planViewMain(){
        negra delgada, letra Arial, columna TOTAL y renglones de total en el
        azul de la hoja, domingo en rojo lleno en los gastos. */
     #wkSlide.wk{border:1px solid #000;border-radius:0;box-shadow:none;background:#fff}
+    /* Más ancha que el resto de la página: rompe el límite de 960px y usa toda
+       la pantalla (hasta 1500px), para que quepan al menos dos semanas
+       completas a la vista. */
+    #wkSlide.wk{width:min(calc(100vw - 32px),1500px);margin-left:calc(50% - min(calc(50vw - 16px),750px));position:relative}
+    #wkSlide .pt input{padding:2px 5px;font-size:12.5px}
+    #wkSlide .pt .cl{width:auto;font-size:11.5px;padding:4px 7px}
+    #wkSlide .pt .tc{padding:5px 6px;min-width:0}
+    #wkSlide .pt tr.tot td{padding:6px 5px;font-size:12px}
     #wkSlide .wk-h{background:#fff;color:#000;border-bottom:1px solid #000;letter-spacing:0;font-size:18px}
     #wkSlide .wk-h .sub{color:#555;font-size:12px}
     #wkSlide .wk-h .tot{color:#000}
@@ -1734,7 +1742,7 @@ function planViewMain(){
     wx.days.forEach((d, j) => COLS.push({t:'d', d, ini: j===0 && i>0}));
     COLS.push({t:'w', i});
   });
-  const ANCHO_CL = 212, ANCHO_D = 92, ANCHO_T = 104;
+  const ANCHO_CL = 176, ANCHO_D = 64, ANCHO_T = 84;
   const anchoTabla = ANCHO_CL + COLS.reduce((s,c)=>s+(c.t==='d'?ANCHO_D:ANCHO_T), 0);
   const tdCls = (c, extra) => {
     const k = [];
