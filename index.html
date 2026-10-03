@@ -865,7 +865,7 @@ function enterApp(){
   /* El checklist se metió DENTRO de Mantenimiento: son la misma chamba del
      día y tener dos pestañas separadas obligaba a brincar entre ellas.
      Para el personal de piso sí sigue siendo su pestaña principal. */
-  if(user.role==='admin') tabs = [['resumen','Resumen'],['mant','Mant.'],['hrr','Herramientas'],['eqp','Equipo'],['fin','Finanzas'],['nueva','+ Tarea']];
+  if(user.role==='admin') tabs = [['resumen','Resumen'],['mant','Mant.'],['hrr','Herramientas'],['eqp','Equipo'],['fin','Finanzas']];
   else if(user.role==='administradora') tabs = [['mov','Movimientos'],['nom','Nómina'],['hrr','Herramientas'],['eqp','Equipo'],['invt','Inventario'],['cor','Corte'],['pedido','Pedido'],['rct','Recetario'],['bco','Banco'],['rep','Reporte']];
   else tabs = [['hoy','Hoy'],['mant','Mantenimiento']];
   tab = tabs[0][0];
@@ -1266,9 +1266,14 @@ function renderCore(){
       ? `<div class="mode-tabs" role="group" aria-label="Mantenimiento">
            <button aria-pressed="${mantSub==='mant'}" data-ms="mant">🔧 Mantenimiento</button>
            <button aria-pressed="${mantSub==='chk'}" data-ms="chk">✅ Checklist del día</button>
+           <button aria-pressed="${mantSub==='nueva'}" data-ms="nueva">➕ Tarea</button>
          </div>` : '';
+    /* «+ Tarea» vivía en la barra de abajo; ahora es parte de Mantenimiento,
+       junto al checklist al que agrega tareas. */
     if(user.role==='admin' && mantSub==='chk'){
       m.innerHTML = sub + suc + checklistView(locId);
+    } else if(user.role==='admin' && mantSub==='nueva'){
+      m.innerHTML = sub + newTaskForm(); wireForm();
     } else {
       m.innerHTML = sub + suc + maintView(locId);
       wireMant(locId);
