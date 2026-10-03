@@ -856,6 +856,25 @@ function lockScreen(){
   </div>`;
   document.body.appendChild(ov);
 }
+/* ---- dónde estaba: se guarda en el link (#...) para que al refrescar o al
+   volver a poner el PIN regreses a la misma pantalla. ---- */
+const NAV_FIN = ['mov','nom','invt','cor','pedido','bco','rct','rep','pla','prod'];
+function navLee(){
+  try{ return Object.fromEntries(new URLSearchParams(location.hash.replace(/^#/,''))); }catch(e){ return {}; }
+}
+function navGuarda(){
+  if(!user || !tab) return;
+  const q = new URLSearchParams();
+  q.set('t', tab);
+  if(user.role==='admin'){ q.set('al', adminLoc); if(tab==='fin') q.set('s', finSub); if(tab==='mant') q.set('ms', mantSub); }
+  const vf = user.role==='administradora' ? tab : (tab==='fin' ? finSub : '');
+  if(vf || tab==='hrr' || tab==='eqp') q.set('fl', finLoc);
+  if(tab==='hrr') q.set('hs', herrSub);
+  if(vf==='pla'){ q.set('pt', planTab); if(planMonth) q.set('pm', planMonth); q.set('ps', planSem||0); }
+  if(vf==='mov' && finMonth) q.set('fm', finMonth);
+  const h = '#'+q.toString();
+  if(location.hash !== h) history.replaceState(null, '', h);
+}
 function enterApp(){
   $('#login').classList.add('hide');
   $('#app').classList.remove('hide');
@@ -872,6 +891,15 @@ function enterApp(){
   else if(user.role==='administradora') tabs = [['mov','Movimientos'],['nom','Nómina'],['hrr','Herramientas'],['eqp','Equipo'],['invt','Inventario'],['cor','Corte'],['pedido','Pedido'],['rct','Recetario'],['bco','Banco'],['rep','Reporte']];
   else tabs = [['hoy','Hoy'],['mant','Mantenimiento']];
   tab = tabs[0][0];
+  const _nav = navLee();
+  if(_nav.t && tabs.some(x=>x[0]===_nav.t)) tab = _nav.t;
+  if(_nav.s && NAV_FIN.includes(_nav.s)) finSub = _nav.s;
+  if(['chk','mant','nueva'].includes(_nav.ms)) mantSub = _nav.ms;
+  if(['calc','fmt','hor'].includes(_nav.hs)) herrSub = _nav.hs;
+  if(['1','2'].includes(_nav.fl)) finLoc = Number(_nav.fl);
+  if(['1','2'].includes(_nav.al)) adminLoc = Number(_nav.al);
+  if(['graf','main','fijos','banco','tarj','conc'].includes(_nav.pt)) planTab = _nav.pt;
+  if(/^[0-5]$/.test(_nav.ps||'')) planSem = Number(_nav.ps);
   const _tabIcons = {'vivo': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>',
     'resumen': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>',
     'hoy': '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>',
@@ -913,6 +941,8 @@ function enterApp(){
   pedWeek = mondayOf(new Date());
   schWeek = mondayOf(new Date());
   planMonth = new Date().toISOString().slice(0,7);
+  if(/^\d{4}-\d{2}$/.test(_nav.pm||'')) planMonth = _nav.pm;
+  if(/^\d{4}-\d{2}$/.test(_nav.fm||'')) finMonth = _nav.fm;
   loadData().then(render);
   resetLockTimer();
   if(user.role==='admin'||user.role==='administradora'){
@@ -1083,6 +1113,7 @@ function render(){
   const _sel = '.emp-scroll,.res-wrap,.lista-larga';
   const _scrolls = [...document.querySelectorAll(_sel)].map(e=>[e.scrollTop, e.scrollLeft]);
   renderCore();
+  navGuarda();
   requestAnimationFrame(()=>{
     document.querySelectorAll(_sel).forEach((e,i)=>{
       if(_scrolls[i]){ e.scrollTop = _scrolls[i][0]; e.scrollLeft = _scrolls[i][1]; }
@@ -2191,7 +2222,7 @@ async function wirePlan(){
         let i = 0;
         ths.forEach(th => { if(inicioDe(Number(th.dataset.wkstart)) <= sc.scrollLeft + 40) i = Number(th.dataset.wkstart); });
         if(i !== planSem){
-          planSem = i;
+          planSem = i; navGuarda();
           document.querySelectorAll('.wkchip').forEach((c,k)=>c.classList.toggle('on', k===i));
         }
       }, {passive:true});
