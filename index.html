@@ -1540,6 +1540,7 @@ const PLAN_FAM = {
   O:     {n:'Otros',                c:'#9E9E9E'},
   RH:    {n:'Recursos humanos',     c:'#C2185B'},
   RZ:    {n:'RZ',                   c:'#7E57C2'},
+  S:     {n:'Servicios',            c:'#00897B'},
   U:     {n:'Uniformes',            c:'#5B6472'}
 };
 /* Este mapa salió del propio Excel de Rod —la columna de la letra, renglón por
@@ -1590,12 +1591,21 @@ function famChip(letra){
 /* Los conceptos que se muestran: los que tienen movimiento en el mes, más los
    que Rod agregó a mano. Una tabla de 29 renglones repetida cinco veces es
    ilegible cuando veinte de esos renglones están vacíos. */
+/* La lista fija de conceptos MÁS los que traiga el mes y no estén en ella
+   (Guaymas tiene TOYO, SERVICIO, TRAMPA…; San Carlos un SIN CONCEPTO). Sin
+   esto esos renglones no se veían y tampoco entraban a los totales. */
+function planGVTodos(){
+  const g = (planEdit && planEdit.gastos_var) || {};
+  const extra = Object.keys(g).filter(c => !PLAN_GV.includes(c) && Object.values(g[c]||{}).some(x => planN(x) !== 0)).sort();
+  return [...PLAN_GV, ...extra];
+}
 function planGVVisibles(){
   const g = planEdit.gastos_var || {};
-  if(planTodos) return PLAN_GV.slice();
-  const conMovimiento = PLAN_GV.filter(c => Object.values(g[c]||{}).some(x => planN(x) !== 0));
+  const T = planGVTodos();
+  if(planTodos) return T;
+  const conMovimiento = T.filter(c => Object.values(g[c]||{}).some(x => planN(x) !== 0));
   const lista = [...new Set([...conMovimiento, ...planExtra])];
-  return lista.length ? PLAN_GV.filter(c => lista.includes(c)) : PLAN_GV.slice();
+  return lista.length ? T.filter(c => lista.includes(c)) : T;
 }
 
 /* Al abrir un mes, cae parado en la semana de hoy —no en la semana 1— porque
@@ -1788,12 +1798,12 @@ function planViewMain(){
      conceptos, que es lo que evita que cada semana traiga 29 renglones en
      blanco. */
   h += fmtBarra();
-  const ocultos = PLAN_GV.filter(c=>!cats.includes(c));
+  const ocultos = planGVTodos().filter(c=>!cats.includes(c));
   h += `<div class="pt-cta">
-    <button class="btn-quiet" data-planall="${planTodos?'0':'1'}">${planTodos?'Ocultar conceptos sin movimiento':`Ver los ${PLAN_GV.length} conceptos`}</button>
+    <button class="btn-quiet" data-planall="${planTodos?'0':'1'}">${planTodos?'Ocultar conceptos sin movimiento':`Ver los ${planGVTodos().length} conceptos`}</button>
     ${ocultos.length?`<select id="planAdd"><option value="">+ Agregar concepto…</option>${
       ocultos.map(c=>`<option value="${esc(c)}">${esc(c)}</option>`).join('')}</select>`:''}
-    <span class="hint" style="margin:0">${cats.length} de ${PLAN_GV.length} conceptos a la vista</span>
+    <span class="hint" style="margin:0">${cats.length} de ${planGVTodos().length} conceptos a la vista</span>
   </div>`;
 
   /* Los totales de todas las semanas se calculan siempre —el resumen del mes
@@ -1803,7 +1813,7 @@ function planViewMain(){
     w.days.forEach(d=>{
       venta += planN((v[d]||{}).ef) + planN((v[d]||{}).tj)
              + planN((v[d]||{}).ra) + planN((v[d]||{}).mq);
-      gasto += cats.reduce((s,c)=>s+planN((g[c]||{})[d]), 0);
+      gasto += planGVTodos().reduce((s,c)=>s+planN((g[c]||{})[d]), 0);
     });
     return {wk:w.wk, venta, gasto, dias:w.days.slice()};
   });
@@ -1973,13 +1983,13 @@ function planViewMain(){
 
   /* ---------- resumen del mes ---------- */
   const vtMes = semTot.reduce((s,x)=>s+x.venta, 0);
-  const gvMes = PLAN_GV.reduce((s,c)=>s+Object.values(g[c]||{}).reduce((a,b)=>a+planN(b),0), 0);
+  const gvMes = planGVTodos().reduce((s,c)=>s+Object.values(g[c]||{}).reduce((a,b)=>a+planN(b),0), 0);
   const totalFijos = Object.values(planEdit.gastos_fijos||{}).reduce((s,r)=>s+planN(r.monto), 0);
   const util = vtMes - gvMes - totalFijos;
 
   // por familia
   const porFam = {};
-  PLAN_GV.forEach(c=>{
+  planGVTodos().forEach(c=>{
     const mes = Object.values(g[c]||{}).reduce((a,b)=>a+planN(b), 0);
     if(!mes) return;
     const f = planFamDe(c);
@@ -2016,7 +2026,7 @@ function planViewMain(){
       <th style="min-width:98px">TOTAL MES</th>
       <th style="min-width:64px">% vta</th>
     </tr></thead><tbody>`;
-  PLAN_GV.forEach(cat=>{
+  planGVTodos().forEach(cat=>{
     const gc = g[cat] || {};
     const mes = Object.values(gc).reduce((a,b)=>a+planN(b), 0);
     if(!mes && !planTodos) return;
@@ -2406,7 +2416,7 @@ async function exportPlanExcel(){
   const totRow=['VENTA TOTAL'];let vtM=0;
   weeks.forEach(w=>{let wk=0;w.days.forEach(d=>{const t=planN((v[d]||{}).ef)+planN((v[d]||{}).tj)+planN((v[d]||{}).ra);totRow.push(t||null);wk+=t;vtM+=t;});totRow.push(wk||null);});
   totRow.push(vtM||null);rows.push(totRow);rows.push([]);
-  PLAN_GV.forEach(c=>{const gc=g[c]||{};let mes=0;const row=[c];
+  planGVTodos().forEach(c=>{const gc=g[c]||{};let mes=0;const row=[c];
     weeks.forEach(w=>{let wk=0;w.days.forEach(d=>{const val=planN(gc[d]);row.push(val||null);wk+=val;mes+=val;});row.push(wk||null);});
     row.push(mes||null);rows.push(row);});
   rows.push([],['GASTOS FIJOS','MONTO','PAGADO']);
