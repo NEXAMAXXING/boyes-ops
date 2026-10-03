@@ -644,6 +644,99 @@ async function concComAnota(monto){
   try{ await concGuarda(ym); }catch(e){ toast('No se pudo guardar — revisa tu conexión'); }
 }
 
+/* ---------- CUADRE: del banco a la planilla ----------
+   Todo lo que salió de la cuenta en el mes, repartido en lo que lo explica.
+   La última línea, "Sin explicar", es la que debe quedar en $0. */
+function concCuadreHTML(estados, casillas){
+  const est = new Map(estados.map(x => [x.mov.id, x.estado]));
+  const cargos = concEdo.movs.filter(m => m.tipo==='cargo');
+  const G = {};
+  const suma = (k, m) => { (G[k] = G[k] || {n:0, t:0}); G[k].n++; G[k].t += m.monto; };
+  const com = concComisiones();
+  const comEnPla = (() => { const P = concMeses[concMes]||{}; return Math.abs(planN(((P.gastos_fijos||{})['COMISIONES BANCARIAS']||{}).monto) - (com?com.monto:0)) < 0.01; })();
+  for(const m of cargos){
+    if(m.clase==='comision'){ suma(comEnPla ? 'com_ok' : 'com_falta', m); continue; }
+    if(m.clase==='traspaso'){ suma('traspaso', m); continue; }
+    if(m.clase!=='pago'){ suma('otro', m); continue; }
+    const e = est.get(m.id);
+    if(e==='confirmado'){
+      const c = casillas.find(x => x.usada && x.usada.mov === m.id);
+      suma(c && c.fijo ? 'fijo' : 'planilla', m);
+    } else suma(e || 'sin_apunte', m);
+  }
+  const total = cargos.reduce((s,m)=>s+m.monto,0);
+  const filas = [
+    ['planilla',  '✅ Conciliado contra la planilla', '#0B6E3F'],
+    ['fijo',      '🔒 Gastos fijos confirmados', '#0B6E3F'],
+    ['com_ok',    '🏦 Comisiones bancarias (ya en la planilla)', '#0B6E3F'],
+    ['ignorado',  '🚫 No va en la planilla', '#5B6472'],
+    ['com_falta', '🏦 Comisiones bancarias — falta anotarlas', '#E0A100'],
+    ['traspaso',  '↔️ Traspasos entre cuentas / a personas — revisar', '#E0A100'],
+    ['otro',      'Otros cargos del banco', '#E0A100'],
+    ['propuesto', '🟡 Encontrados, falta que confirmes', '#E0A100'],
+    ['pendiente', '⏸ Pendientes con Karen', '#E0A100'],
+    ['sin_apunte','❓ Sin explicar', '#C0261F']
+  ];
+  const sinExp = (G.sin_apunte||{t:0}).t;
+  const abiertos = ['com_falta','traspaso','otro','propuesto','pendiente','sin_apunte'].reduce((s,k)=>s+((G[k]||{}).t||0),0);
+  return `<div class="panel"><div class="d-h3">Cuadre de egresos · ${concNomMes(concMes)}</div>
+    <p class="hint" style="margin:0 0 8px">Todo lo que salió de la cuenta, y qué lo explica. Cuando "Sin explicar" está en $0, cada peso del estado de cuenta está considerado.</p>
+    <div class="res-wrap"><table class="res" style="font-size:13px;min-width:0"><tbody>
+      ${filas.filter(([k]) => G[k]).map(([k,t,col]) => `<tr>
+        <td style="text-align:left;border-left:4px solid ${col}">${t}</td>
+        <td style="width:70px">${G[k].n}</td>
+        <td style="width:130px;font-weight:700">${money(Math.round(G[k].t*100)/100)}</td></tr>`).join('')}
+      <tr style="font-weight:900;background:#F6F4EE"><td style="text-align:left">Total de cargos del estado de cuenta</td><td>${cargos.length}</td><td>${money(Math.round(total*100)/100)}</td></tr>
+    </tbody></table></div>
+    <p style="margin:10px 0 0;font-weight:800;color:${sinExp<0.01 && abiertos<0.01 ? '#0B6E3F' : (sinExp<0.01 ? '#8A5A00' : '#C0261F')}">
+      ${sinExp<0.01 && abiertos<0.01 ? '✓ Cuadrado: todos los egresos del banco están considerados.'
+        : sinExp<0.01 ? `Sin explicar en $0. Quedan ${money(Math.round(abiertos*100)/100)} por cerrar (confirmar, pendientes, traspasos o comisiones).`
+        : `Faltan ${money(Math.round(sinExp*100)/100)} sin explicar.`}</p>
+  </div>`;
+}
+
+/* ---------- LISTA INVERSA: de la planilla al banco ----------
+   Casillas de gasto del mes del estado que NINGÚN cargo del banco explica.
+   Normal si se pagaron en efectivo; si no, es una captura de más o un error.
+   Las naranjas del Excel cuentan como ya verificadas. */
+function concInversaHTML(casillas, rep){
+  /* Las que ya están propuestas a un cargo no se listan: se explican al confirmar. */
+  const prop = new Set();
+  if(rep) for(const l of rep.deMov.values()) l.forEach(c => prop.add(c.clave+'@'+c.ym));
+  const lista = casillas.filter(c => !c.fijo && c.ym === concMes && !c.usada && !prop.has(c.clave+'@'+c.ym))
+    .filter(c => !(((concMeses[c.ym]||{}).formato||{})[c.clave]||{}).efectivo)
+    .sort((a,b) => a.dia-b.dia || b.monto-a.monto);
+  const efe = casillas.filter(c => !c.fijo && c.ym === concMes && (((concMeses[c.ym]||{}).formato||{})[c.clave]||{}).efectivo);
+  const tot = lista.reduce((s,c)=>s+c.monto,0), totE = efe.reduce((s,c)=>s+c.monto,0);
+  const dow = c => ['D','L','M','M','J','V','S'][new Date(c.fecha+'T12:00:00').getDay()];
+  return `<div class="panel"><div class="d-h3">De la planilla al banco · ${concNomMes(concMes)}</div>
+    <p class="hint" style="margin:0 0 8px">Gastos capturados en la planilla de este mes que ningún cargo del banco explica.
+      Si se pagaron en efectivo, márcalos 💵 y salen de la lista. Lo que quede es captura de más, error, o algo que se pagó en el estado del mes siguiente.</p>
+    ${lista.length ? `<div class="res-wrap"><table class="res" style="font-size:12.5px;min-width:0"><thead><tr>
+        <th style="text-align:left">Día</th><th style="text-align:left">Concepto</th><th>Monto</th><th>Marca</th><th></th></tr></thead><tbody>
+      ${lista.map(c => `<tr>
+        <td style="text-align:left">${dow(c)} ${c.dia}</td>
+        <td style="text-align:left">${esc(c.cat)}</td>
+        <td style="font-weight:700">${money(c.monto)}</td>
+        <td>${c.karen ? '🟪 Karen' : '—'}</td>
+        <td><button class="btn-quiet" style="padding:4px 10px;min-height:0;font-size:12px" data-cefe="${esc(c.ym)}|${esc(c.clave)}">💵 Efectivo</button></td></tr>`).join('')}
+      <tr style="font-weight:900;background:#F6F4EE"><td></td><td style="text-align:left">Total sin cargo en el banco</td><td>${money(Math.round(tot*100)/100)}</td><td></td><td></td></tr>
+    </tbody></table></div>` : `<p style="margin:0;font-weight:800;color:#0B6E3F">✓ Todo lo capturado este mes está explicado por el banco o marcado como efectivo.</p>`}
+    ${efe.length ? `<p class="hint" style="margin:8px 0 0">💵 Marcados como efectivo: ${efe.length} · ${money(Math.round(totE*100)/100)}
+      <button class="btn-quiet" style="padding:3px 9px;min-height:0;font-size:11.5px" id="concVerEfe">ver / quitar</button></p>
+      <div id="concEfeBox" hidden style="font-size:12px">${efe.map(c=>`${c.dia} · ${esc(c.cat)} · ${money(c.monto)} <a href="#" data-cefeq="${esc(c.ym)}|${esc(c.clave)}">quitar</a>`).join('<br>')}</div>` : ''}
+  </div>`;
+}
+async function concEfectivo(ym, clave, si){
+  const P = concMeses[ym]; if(!P) return;
+  P.formato = P.formato || {};
+  const f = { ...(P.formato[clave]||{}) };
+  if(si) f.efectivo = true; else delete f.efectivo;
+  if(Object.keys(f).length) P.formato[clave] = f; else delete P.formato[clave];
+  render();
+  try{ await concGuarda(ym); }catch(e){ toast('No se pudo guardar — revisa tu conexión'); }
+}
+
 /* "Mover de renglón": Karen lo apuntó en otro concepto. Se quita de ahí y se
    pone en el concepto del proveedor, mismo día, ya con el monto del banco. */
 async function concMueve(movId, ym, claveVieja, catNueva){
@@ -926,6 +1019,7 @@ function concView(){
   const nSin  = estados.filter(x=>x.estado==='sin_apunte').length;
   const mSin  = estados.filter(x=>x.estado==='sin_apunte').reduce((s,x)=>s+x.mov.monto,0);
 
+  h += concCuadreHTML(estados, casillas);
   h += `<div class="panel"><div class="d-h3">Pagos a proveedor · ${pagos.length} movimientos</div>
     <div class="conc-res">
       <div class="conc-k" style="border-left-color:#0B6E3F"><div class="l">Confirmados</div><div class="v">${nOk}</div></div>
@@ -1083,6 +1177,8 @@ function concView(){
   if(!hay) h += `<p class="hint">Nada en este filtro.</p>`;
   h += `</div>`;
 
+  h += concInversaHTML(casillas, rep);
+
   /* ---- comisiones bancarias ---- */
   const com = concComisiones();
   if(com && (com.suma > 0 || com.dec)){
@@ -1203,6 +1299,11 @@ function wireConc(){
   document.querySelectorAll('[data-cmas]').forEach(b=>b.addEventListener('click', ()=>{
     const box = document.querySelector(`[data-cmasbox="${CSS.escape(b.dataset.cmas)}"]`);
     if(box){ box.hidden = !box.hidden; b.textContent = box.hidden ? 'Más opciones ▾' : 'Menos ▴'; } }));
+  document.querySelectorAll('[data-cefe]').forEach(b=>b.addEventListener('click', ()=>{
+    const [ym, ...r] = b.dataset.cefe.split('|'); concEfectivo(ym, r.join('|'), true); }));
+  document.querySelectorAll('[data-cefeq]').forEach(a=>a.addEventListener('click', e=>{ e.preventDefault();
+    const [ym, ...r] = a.dataset.cefeq.split('|'); concEfectivo(ym, r.join('|'), false); }));
+  document.getElementById('concVerEfe')?.addEventListener('click', ()=>{ const b=document.getElementById('concEfeBox'); if(b) b.hidden=!b.hidden; });
   document.querySelectorAll('[data-ccom]').forEach(b=>b.addEventListener('click', ()=>concComAnota(Number(b.dataset.ccom))));
   document.querySelectorAll('[data-cpok]').forEach(b=>b.addEventListener('click', ()=>{
     const id = b.dataset.cpok; concDejaPend(id, _v('data-cpnew', id).trim()); }));
