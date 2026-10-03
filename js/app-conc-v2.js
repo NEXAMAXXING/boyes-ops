@@ -369,6 +369,7 @@ function concCandidatos(mov, casillas){
    del banco del mismo monto compiten por la misma casilla, se la queda el que
    mejor coincide (fecha y nombre) y el otro va a "no encontrados" desde el
    principio — así confirmar uno nunca cambia de estado a otro. */
+let concAbiertos = new Set();    // tarjetas con 'Más opciones' abierto (p.ej. al quitar pendiente)
 let concRecientes = new Set();   // confirmados en esta sesión: se quedan a la vista
 
 /* ---------- proveedor → concepto, aprendido ----------
@@ -637,7 +638,10 @@ async function concQuitaPend(movId){
   const mov = concEdo.movs.find(m=>m.id===movId); if(!mov) return;
   const ym = mov.fecha.slice(0,7), P = concMeses[ym];
   if(P?.formato?._concChk) delete P.formato._concChk[movId];
-  render();
+  concAbiertos.add(movId);
+  render(); toast('Listo — ahora elige cómo cuadrarlo');
+  setTimeout(()=>{ const el=document.querySelector(`[data-cmasbox="${CSS.escape(movId)}"],[data-conccand="${CSS.escape(movId)}"]`);
+    if(el) el.scrollIntoView({block:'center', behavior:'smooth'}); }, 50);
   try{ await concGuarda(ym); }catch(e){ toast('No se pudo guardar — revisa tu conexión'); }
 }
 async function concNotaPend(movId, nota){
@@ -1374,9 +1378,9 @@ function concView(){
             return (Kf && fijos.includes(Kf) && concMeses[ymF]) ? `<button class="btn-primary" data-cfok="${mid}" data-cfnom2="${esc(Kf)}" data-cfym2="${ymF}">🔒 Es ${esc(Kf)} · ${concNomMes(ymF)} (gasto fijo)</button>` : ''; })()}
         ${sug && !(concProveedor(mov) && fijos.includes(concProveedor(mov))) ? `<button class="btn-primary" data-crapcap="${mid}" data-crapcat="${esc(sug)}">✏️ Capturar en ${esc(sug)} · ${esc(mov.fecha.slice(8,10))} ${CONC_MESES[Number(mov.fecha.slice(5,7))].slice(0,3)}</button>` : ''}
         <button class="${sug?'btn-quiet':'btn-primary'}" data-cpok="${mid}">⏸ Pendiente</button>
-        <button class="btn-quiet conc-masbtn" data-cmas="${mid}">Más opciones ▾</button>
+        <button class="btn-quiet conc-masbtn" data-cmas="${mid}">${concAbiertos.has(mov.id)?'Menos ▴':'Más opciones ▾'}</button>
       </div>
-      <div class="conc-opc" data-cmasbox="${mid}" hidden>
+      <div class="conc-opc" data-cmasbox="${mid}"${concAbiertos.has(mov.id)?'':' hidden'}>
         ${otros.length ? `<div class="conc-o" style="border-color:#E0A100;background:#FFF9E8"><b>🔀 ¿Karen lo puso en otro renglón?</b>
           <select data-cmvsel="${mid}">${otros.map(c=>`<option value="${esc(c.ym)}|${esc(c.clave)}">${esc(c.cat)} · ${c.dia} ${CONC_MESES[Number(c.ym.slice(5,7))].slice(0,3)} · ${money(c.monto)}</option>`).join('')}</select>
           <button class="btn-primary" data-cmvok="${mid}" data-cmvcat="${esc(K)}">Mover a ${esc(K)} y confirmar</button>
@@ -1566,7 +1570,8 @@ function wireConc(){
     if(mov) concCaptura(id, b.dataset.crapcat, mov.fecha, ''); }));
   document.querySelectorAll('[data-cmas]').forEach(b=>b.addEventListener('click', ()=>{
     const box = document.querySelector(`[data-cmasbox="${CSS.escape(b.dataset.cmas)}"]`);
-    if(box){ box.hidden = !box.hidden; b.textContent = box.hidden ? 'Más opciones ▾' : 'Menos ▴'; } }));
+    if(box){ box.hidden = !box.hidden; b.textContent = box.hidden ? 'Más opciones ▾' : 'Menos ▴';
+      if(box.hidden) concAbiertos.delete(b.dataset.cmas); else concAbiertos.add(b.dataset.cmas); } }));
   document.querySelectorAll('[data-cefe]').forEach(b=>b.addEventListener('click', ()=>{
     const [ym, ...r] = b.dataset.cefe.split('|'); concEfectivo(ym, r.join('|'), true); }));
   document.querySelectorAll('[data-cefeq]').forEach(a=>a.addEventListener('click', e=>{ e.preventDefault();
