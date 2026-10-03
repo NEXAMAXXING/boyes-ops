@@ -52,7 +52,7 @@ function concEsRuido(l){
   if(!l) return true;
   if(/^(BBVA|BANORTE|SANTANDER|CITI|BAJIO|STP|HSBC|SCOTIABANK|AZTECA|INBURSA|BANCOPPEL|AFIRME|MIFEL|MULTIVA)\b.*\d{10,}/i.test(l)) return true;
   if(/^\d{10,}$/.test(l)) return true;
-  if(/PAGO EN UNA SOLA EXHIBICION|Tasa IVA|Página|ESTADO DE CUENTA|www\.|Banco Inbursa/i.test(l)) return true;
+  if(/PAGO EN UNA SOLA EXHIBICION|Tasas? expresadas|GAT Real|Tasa IVA|Página|ESTADO DE CUENTA|www\.|Banco Inbursa/i.test(l)) return true;
   /* El pie de página del banco (dirección de Inbursa, tus datos, el RFC):
      cuando un cargo cae al final de la hoja, lo de abajo es esto y no un
      beneficiario. */
