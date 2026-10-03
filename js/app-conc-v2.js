@@ -166,6 +166,7 @@ function concCasillas(){
         const clave = `g|${cat}|${d}`;
         out.push({
           ym, cat, dia: Number(d), monto, clave,
+          karen: String((P.formato||{})[clave]?.bg||'').toUpperCase()==='#FF00FF',
           fecha: `${ym}-${String(d).padStart(2,'0')}`,
           /* Naranja = Rod ya la verificó contra un estado de cuenta anterior
              (así venía del Excel). Esa cantidad ya se usó: no se vuelve a ofrecer. */
@@ -201,7 +202,7 @@ function concEtiqueta(c, mov){
     const nota = dm>0 ? ' (pagado por adelantado)' : (dm<0 ? ' (pagado tarde)' : '');
     return `🔒 Gasto fijo ${c.cat} · ${concNomMes(c.ym)}${nota}`;
   }
-  return `${c.cat} · ${c.dia} de ${c.ym}`;
+  return `${c.cat} · ${c.dia} de ${c.ym}${c.karen?' · rosa (Karen ya la marcó)':' · sin marca'}`;
 }
 
 function concDias(a, b){
