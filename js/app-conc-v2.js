@@ -1443,17 +1443,49 @@ function concView(){
        ['ign','🚫 Marcados como "no va en la planilla"', '']]
     : [[concFiltro==='ok'?'ok':concFiltro==='sin'?'sin':'todos', '', '']];
 
+  /* Cargos fijos del banco (comisiones y administración de cuenta): una
+     tarjeta como las demás, con su botón de confirmar. */
+  let bancoHTML = '', bancoN = 0;
+  if(concFiltro==='pendientes'){
+    const Pm = concMeses[concMes] || {};
+    const fijoEn = nom => planN(((Pm.gastos_fijos||{})[nom]||{}).monto);
+    const tarjetas = [];
+    const com = concComisiones();
+    if(com && (com.suma > 0 || com.dec)){
+      const ok = Math.abs(fijoEn('COMISIONES BANCARIAS') - com.monto) < 0.01;
+      tarjetas.push({ok, monto: com.monto, nom: 'Comisiones bancarias', fijo: 'COMISIONES BANCARIAS', attr: `data-ccom="${com.monto}"`,
+        det: `${com.lista.length} cargos (tasa de descuento + IVA)${com.dec && Math.abs(com.dec - com.suma) > 0.5 ? ` · el banco declara ${money(com.dec)}` : ''}`});
+    }
+    const adm = concAdminCuenta();
+    if(adm){
+      const ok = Math.abs(fijoEn(CONC_ADMIN) - adm.suma) < 0.01;
+      tarjetas.push({ok, monto: adm.suma, nom: 'Administración de cuenta Inbursa', fijo: CONC_ADMIN, attr: `data-cadm="${adm.suma}"`,
+        det: adm.lista.map(m => money(m.monto)).join(' + ') + ' IVA'});
+    }
+    bancoN = tarjetas.filter(t => !t.ok).length;
+    {
+      for(const t of tarjetas){
+        bancoHTML += `<div class="conc-mov ${t.ok?'ok':'prop'}">
+          <div class="conc-top"><span class="mnt">${money(t.monto)}</span><span class="ben">${t.nom}</span>${concChip(t.ok?'confirmado':'propuesto')}
+            <span class="fch">${concNomMes(concMes)} · ${t.det}</span></div>
+          <div class="conc-cand"><span style="font-size:12.5px">${t.ok ? `Va contra <b>🔒 Gasto fijo ${esc(t.fijo)} · ${concNomMes(concMes)}</b> — ya está en la planilla` : `🔒 Gasto fijo <b>${esc(t.fijo)}</b> · ${concNomMes(concMes)}`}</span>
+            ${t.ok ? '' : `<button class="btn-primary" ${t.attr} style="margin-left:auto">Confirmar</button>`}</div></div>`;
+      }
+    }
+  }
+
   let hay = false;
   for(const [sec, titulo, ayuda] of secciones){
   const visibles = enSec(sec);
-  if(!visibles.length) continue;
+  const extra = sec==='match' ? bancoHTML : '';
+  if(!visibles.length && !extra) continue;
   hay = true;
-  if(titulo) h += `<div class="conc-sec"><b>${titulo} · ${visibles.length}</b>${ayuda?`<span class="hint">${ayuda}</span>`:''}
+  if(titulo) h += `<div class="conc-sec"><b>${titulo} · ${visibles.length + (sec==='match' ? bancoN : 0)}</b>${ayuda?`<span class="hint">${ayuda}</span>`:''}
     ${sec==='sin'?`<button class="btn-primary" id="concSinTodos" data-ids="${esc(visibles.map(x=>x.mov.id).join(','))}" style="align-self:flex-start;margin-top:6px">⏸ Mandar los ${visibles.length} a pendientes (Karen no los anotó)</button>`:''}
     ${sec==='pend'?`<button class="btn-primary" id="concPendPDF" style="align-self:flex-start;margin-top:6px">📄 PDF de pendientes para Karen</button>`:''}</div>`;
   /* Cada sección se desplaza sola: la página no crece a 100 tarjetas y las
      demás secciones (y el cuadre) quedan a la mano. */
-  h += `<div class="lista-larga conc-lista" data-csec="${sec}">`;
+  h += `<div class="lista-larga conc-lista" data-csec="${sec}">` + extra;
   for(const {mov, estado} of visibles){
     const cls = estado==='confirmado'?'ok':(estado==='sin_apunte'?'sin':(estado==='ignorado'?'ign':(estado==='pendiente'?'pend':'prop')));
     h += `<div class="conc-mov ${cls}">
@@ -1611,26 +1643,6 @@ function concView(){
 
   h += concInversaHTML(casillas, rep);
 
-  /* ---- comisiones bancarias ---- */
-  const com = concComisiones();
-  if(com && (com.suma > 0 || com.dec)){
-    const P = concMeses[concMes] || {};
-    const enPla = planN(((P.gastos_fijos||{})['COMISIONES BANCARIAS']||{}).monto);
-    const ok = Math.abs(enPla - com.monto) < 0.01;
-    h += `<div class="panel"><div class="d-h3">Comisiones bancarias · ${concNomMes(concMes)}</div>
-      <div class="conc-res">
-        <div class="conc-k" style="border-left-color:#C0261F"><div class="l">Del estado de cuenta</div><div class="v">${money(com.monto)}</div>
-          <div class="hint" style="margin:2px 0 0">${com.lista.length} cargos${com.dec?` · el banco declara ${money(com.dec)}`:''}</div></div>
-        <div class="conc-k" style="border-left-color:${ok?'#0B6E3F':'#E0A100'}"><div class="l">En la planilla</div><div class="v">${enPla?money(enPla):'—'}</div>
-          <div class="hint" style="margin:2px 0 0">COMISIONES BANCARIAS (gasto fijo)</div></div>
-      </div>
-      <p class="hint" style="margin:0 0 8px">${Object.entries(com.grupos).map(([k,v])=>`${k}: ${money(Math.round(v*100)/100)}`).join(' · ')} (incluye IVA)
-        ${com.dec && Math.abs(com.dec - com.suma) > 0.5 ? `<br>Sumé ${money(com.suma)} en cargos de comisión; el banco declara ${money(com.dec)}. Se usa lo que declara el banco.` : ''}</p>
-      ${ok ? `<p style="margin:0;font-weight:700;color:#0B6E3F">✓ Ya está en la planilla y en naranja.</p>`
-           : `<button class="btn-primary" data-ccom="${com.monto}">Anotar ${money(com.monto)} en COMISIONES BANCARIAS de ${concNomMes(concMes)}</button>`}
-    </div>`;
-  }
-
   /* ---- entre sucursales ---- */
   const ent = concEntreSucursales();
   {
@@ -1646,19 +1658,6 @@ function concView(){
           <td style="font-weight:700">${money(x.m.monto)}</td>
           <td style="text-align:left;white-space:normal">${x.exp}</td></tr>`).join('')}
       </tbody></table></div>` : `<p class="hint" style="margin:0">No hubo traspasos entre sucursales este mes.</p>`}
-    </div>`;
-  }
-
-  /* ---- administración de cuenta ---- */
-  const adm = concAdminCuenta();
-  if(adm){
-    const P = concMeses[concMes] || {};
-    const enPla = planN(((P.gastos_fijos||{})[CONC_ADMIN]||{}).monto);
-    const ok = Math.abs(enPla - adm.suma) < 0.01;
-    h += `<div class="panel"><div class="d-h3">Administración de cuenta Inbursa · ${concNomMes(concMes)}</div>
-      <p class="hint" style="margin:0 0 8px">${adm.lista.map(m=>`${esc(m.concepto)} ${money(m.monto)}`).join(' + ')} = <b>${money(adm.suma)}</b> · cargo fijo del banco cada mes.</p>
-      ${ok ? `<p style="margin:0;font-weight:700;color:#0B6E3F">✓ Ya está en la planilla (gasto fijo ${CONC_ADMIN}).</p>`
-           : `<button class="btn-primary" data-cadm="${adm.suma}">Anotar ${money(adm.suma)} en ${CONC_ADMIN} de ${concNomMes(concMes)}</button>`}
     </div>`;
   }
 
