@@ -182,11 +182,25 @@ function concCasillas(){
       const monto = planN((f||{}).monto);
       if(!monto) continue;
       const clave = `f|${nom}|monto`;
+      const bgF = String((P.formato||{})[clave]?.bg||'').toUpperCase();
       out.push({ ym, cat: nom, dia: null, fijo: true, monto, clave,
-        fecha: `${ym}-01`, usada: conc[clave] || null });
+        fecha: `${ym}-01`, karen: bgF==='#FF00FF',
+        usada: conc[clave] || (bgF===CONC_COLOR ? {mov:'excel', por:'Excel (naranja)'} : null) });
     }
   }
   return out;
+}
+
+/* Un gasto fijo se ofrece para un pago del banco si es del mismo mes, o del
+   mes siguiente (pagado por adelantado). El del MES ANTERIOR solo si Karen lo
+   dejó en rosa y Rod no lo ha puesto en naranja: hay servicios (fumigación,
+   etc.) que se pagan al mes siguiente, pero si ese mes ya está verificado,
+   este pago no puede ser de él. */
+function concFijoAplica(c, mov){
+  const dm = concMesDif(c.ym, mov.fecha.slice(0,7));
+  if(dm === 0 || dm === 1) return true;
+  if(dm === -1) return !!c.karen;
+  return false;
 }
 
 function concMesDif(ymA, ymB){
@@ -199,7 +213,7 @@ function concNomMes(ym){ const [y,m] = ym.split('-').map(Number); return `${CONC
 function concEtiqueta(c, mov){
   if(c.fijo){
     const dm = mov ? concMesDif(c.ym, mov.fecha.slice(0,7)) : 0;
-    const nota = dm>0 ? ' (pagado por adelantado)' : (dm<0 ? ' (pagado tarde)' : '');
+    const nota = dm>0 ? ' (pagado por adelantado)' : (dm<0 ? ' (servicio de ese mes, se paga al siguiente · 🟪 Karen)' : '');
     return `🔒 Gasto fijo ${c.cat} · ${concNomMes(c.ym)}${nota}`;
   }
   return `${c.cat} · ${c.dia} ${CONC_MESES[Number(c.ym.slice(5,7))].slice(0,3)}${c.karen?' · 🟪 Karen':' · sin marca'}`;
@@ -215,8 +229,7 @@ function concDias(a, b){
 function concCandidatos(mov, casillas){
   const libre = c =>
     (!c.usada || c.usada.mov === mov.id) &&
-    (c.fijo ? Math.abs(concMesDif(c.ym, mov.fecha.slice(0,7))) <= 1
-            : concDias(c.fecha, mov.fecha) <= concVentana);
+    (c.fijo ? concFijoAplica(c, mov) : concDias(c.fecha, mov.fecha) <= concVentana);
   /* Si no hay monto exacto, se ofrecen los parecidos (Karen a veces redondea:
      765 en vez de 765.88). Salen marcados y al confirmar se corrige la
      casilla al monto del banco. */
@@ -722,7 +735,7 @@ function concView(){
           <select data-cfnom="${mid}">${fijos.map(f=>`<option>${esc(f)}</option>`).join('')}</select>
           <select data-cfym="${mid}">${mesesF.map(ym=>{
             const dm = concMesDif(ym, ymMov);
-            return `<option value="${ym}"${dm===0?' selected':''}>${concNomMes(ym)}${dm>0?' (por adelantado)':dm<0?' (atrasado)':''}</option>`;}).join('')}</select>
+            return `<option value="${ym}"${dm===0?' selected':''}>${concNomMes(ym)}${dm>0?' (por adelantado)':dm<0?' (servicio del mes anterior)':''}</option>`;}).join('')}</select>
           <button class="btn-primary" data-cfok="${mid}">Aplicar</button>
           <span class="hint">Lo marca pagado y deja ${money(mov.monto)} como monto real de ese mes.</span></div>
         <div class="conc-o"><b>✏️ Capturarlo como gasto</b>
