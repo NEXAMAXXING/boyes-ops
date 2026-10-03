@@ -361,6 +361,15 @@ function concCandidatos(mov, casillas){
   const cand = exactos.concat(
     casillas.filter(c => (!c.fijo || (K && c.cat === K) || c.karen) && Math.abs(c.monto - mov.monto) >= 0.01 && Math.abs(c.monto - mov.monto) <= holg && libre(c) && delProv(c))
             .map(c => ({...c, aprox: true})));
+  /* Crédito de proveedor: la compra se anota el día que llega y se paga ~7
+     días después. Si esa casilla ya venía en naranja de tu Excel (sin decir
+     contra qué pago) y es del MISMO proveedor, MISMO monto y el pago cae 0–15
+     días después, se propone igual: es casi seguro este pago. */
+  if(!cand.length && K){
+    casillas.filter(c => !c.fijo && c.cat === K && c.usada && c.usada.mov === 'excel' &&
+        Math.abs(c.monto - mov.monto) < 0.01 && (() => { const d = concDias(c.fecha, mov.fecha); return c.fecha <= mov.fecha && d <= 15; })())
+      .forEach(c => cand.push({...c, naranjaExcel: true}));
+  }
   /* Va en K pero Karen lo puso en otro renglón (la trampa en MANTENIMIENTO):
      si no hay nada en K, se ofrece la casilla rosa del MISMO monto en otro
      renglón, avisando que está en otro lado. */
@@ -404,7 +413,8 @@ const CONC_SEMILLA = [            // para arrancar mientras se junta historia
   [/MEGACABLE/, 'MEGACABLE'],
   [/TELMEX|TELEFONOS DE MEXICO/, 'TELMEX'],
   [/SIPARE/, 'IMSS'],
-  [/ARMANDO\s+ZE[ÑN]A/, 'AZ'],           // sueldo de Armando, el socio
+  [/ARMANDO\s+ZE[ÑN]A/, 'AZ'],                                                // sueldo de Armando, el socio
+  [/MARISA LOPEZ FLORES/, 'PANADERIA'], [/MECHELLE GUADALUPE/, 'VERDURA'],   // Guaymas: panadería y verdura (crédito 7 días)
   [/GASOL|GASOLINER|PEMEX|\bOXXO GAS\b|\bG500\b|\bARCO\b|\bBP\b|SHELL|MOBIL|\bREDCO\b|\bHIDROSINA\b/, 'GASOLINA']
 ];
 function concBenClave(t){
@@ -1451,7 +1461,7 @@ function concView(){
       h += `<div class="conc-cand">
         <select data-conccand="${esc(mov.id)}">
           ${cand.slice(0,25).map((c,i)=>`<option value="${esc(c.ym)}|${esc(c.clave)}"${i?'':' selected'}>
-            ${c.otro?`⚠️ Karen lo puso en ${esc(c.cat)} (va en ${esc(c.otro)}) · `:''}${c.aprox?'≈ ':''}${esc(concEtiqueta(c, mov))} · ${c.aprox?`Karen puso ${money(c.monto)} → queda ${money(mov.monto)}`:money(c.monto)}${c.fijo||c.aprox?'':` · ${concDiasTxt(c, mov)}`}
+            ${c.otro?`⚠️ Karen lo puso en ${esc(c.cat)} (va en ${esc(c.otro)}) · `:''}${c.naranjaExcel?'🟧 ya estaba en naranja (Excel) · ':''}${c.aprox?'≈ ':''}${esc(concEtiqueta(c, mov))} · ${c.aprox?`Karen puso ${money(c.monto)} → queda ${money(mov.monto)}`:money(c.monto)}${c.fijo||c.aprox?'':` · ${concDiasTxt(c, mov)}`}
           </option>`).join('')}
           ${(() => { const K = concProveedor(mov); const dd = mov.fecha.slice(8,10)+' '+CONC_MESES[Number(mov.fecha.slice(5,7))].slice(0,3);
             const lista = [...new Set([...(K?[K]:[]), ...(typeof PLAN_GV!=='undefined'?PLAN_GV:[])])];
