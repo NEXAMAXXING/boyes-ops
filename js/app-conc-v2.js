@@ -587,12 +587,13 @@ async function concCargaMeses(){
     const yms = concVecinos(concMes);
     const {data} = await sb.from('planilla_months').select('*')
       .eq('location_id', finLoc).in('year_month', yms);
-    concMeses = {};
+    concMeses = {}; concFmtBase = {};
     for(const ym of yms){
       const row = (data||[]).find(r=>r.year_month===ym);
       concMeses[ym] = row
         ? {ventas:row.ventas||{}, gastos_var:row.gastos_var||{}, gastos_fijos:row.gastos_fijos||{}, formato:row.formato||{}}
         : {ventas:{}, gastos_var:{}, gastos_fijos:{}, formato:{}};
+      concFmtBase[ym] = JSON.parse(JSON.stringify(concMeses[ym].formato));
     }
     concOtra = {};
     try{
@@ -611,6 +612,26 @@ async function concCargaMeses(){
    formato): una casilla de gasto nueva o un gasto fijo marcado como pagado.
    Se aplican sobre lo que haya en la base en ese momento, celda por celda. */
 let concPend = {};   // ym -> {gv:{cat:{dia:monto}}, gf:{nombre:{...}}}
+/* El formato se junta en 3 vías: lo que hay en la base AHORA + lo que esta
+   pantalla cambió desde que lo cargó (contra la copia de ese momento). Así
+   una pestaña vieja no borra lo que se hizo en otra (pasó con AZ 29 jun). */
+let concFmtBase = {};   // ym -> formato tal como se cargó
+const CONC_FMT_SUB = ['_conc','_concIgn','_concChk','_fam'];
+function concJuntaFmt(srv, base, mio){
+  const out = JSON.parse(JSON.stringify(srv||{}));
+  const igual = (a,b) => JSON.stringify(a) === JSON.stringify(b);
+  const keys = new Set([...Object.keys(base||{}), ...Object.keys(mio||{})]);
+  for(const k of keys){
+    if(CONC_FMT_SUB.includes(k)){
+      out[k] = concJuntaFmt((srv||{})[k], (base||{})[k], (mio||{})[k]);
+      continue;
+    }
+    const b = (base||{})[k], m = (mio||{})[k];
+    if(igual(b, m)) continue;                  // esta pantalla no lo tocó
+    if(m === undefined) delete out[k]; else out[k] = m;
+  }
+  return out;
+}
 async function concGuarda(ym){
   const P = concMeses[ym];
   if(!P) return;
@@ -618,6 +639,8 @@ async function concGuarda(ym){
     .eq('location_id', finLoc).eq('year_month', ym).limit(1);
   const base = (data && data[0]) || {ventas:{}, gastos_var:{}, gastos_fijos:{}, banco:{}};
   const gv = base.gastos_var||{}, gf = base.gastos_fijos||{};
+  const fmt = concJuntaFmt(base.formato||{}, concFmtBase[ym]||{}, P.formato||{});
+  P.formato = fmt; concFmtBase[ym] = JSON.parse(JSON.stringify(fmt));
   const pend = concPend[ym] || {};
   for(const [cat, dias] of Object.entries(pend.gv||{})){
     gv[cat] = gv[cat] || {};
@@ -629,7 +652,7 @@ async function concGuarda(ym){
     location_id: finLoc, year_month: ym,
     ventas: base.ventas||{}, gastos_var: gv,
     gastos_fijos: gf, banco: base.banco||{},
-    formato: P.formato||{},
+    formato: fmt,
     created_by: user.name, updated_at: new Date().toISOString()
   }, {onConflict:'location_id,year_month'});
   /* Si el mes que se tocó es el que está abierto en la Planilla, se le pasa
@@ -948,16 +971,32 @@ function concInversaHTML(casillas, rep){
   const rosas = sueltas.filter(c => c.karen), efe = sueltas.filter(c => !c.karen);
   const tR = rosas.reduce((s,c)=>s+c.monto,0), tE = efe.reduce((s,c)=>s+c.monto,0);
   const dow = c => ['D','L','M','M','J','V','S'][new Date(c.fecha+'T12:00:00').getDay()];
-  const tabla = (l, tot, rot) => `<div class="res-wrap"><table class="res" style="font-size:12.5px;min-width:0"><thead><tr>
-      <th style="text-align:left">Día</th><th style="text-align:left">Concepto</th><th>Monto</th></tr></thead><tbody>
-    ${l.map(c => `<tr><td style="text-align:left">${dow(c)} ${c.dia}</td><td style="text-align:left">${esc(c.cat)}</td>
-      <td style="font-weight:700">${money(c.monto)}</td></tr>`).join('')}
-    <tr style="font-weight:900;background:#F6F4EE"><td></td><td style="text-align:left">${rot}</td><td>${money(Math.round(tot*100)/100)}</td></tr>
+  /* ¿Qué cargo del banco podría ser? Mismo monto (o casi), pagado en los días
+     siguientes, que todavía no está confirmado: casi siempre es uno que
+     quedó en Pendientes, Puente o No encontré. */
+  const tomados = new Set();
+  const posible = c => {
+    if(!concEdo) return null;
+    const holg = Math.max(5, c.monto*0.005);
+    const m = concEdo.movs.filter(m => m.tipo==='cargo' && !tomados.has(m.id) && Math.abs(m.monto - c.monto) <= holg &&
+        !casillas.some(x => concUsaMov(x, m.id)) && (() => { const d = (new Date(m.fecha) - new Date(c.fecha))/864e5; return d >= -3 && d <= 30; })())
+      .sort((a,b) => Math.abs(a.monto-c.monto) - Math.abs(b.monto-c.monto) || concDias(a.fecha,c.fecha) - concDias(b.fecha,c.fecha))[0];
+    if(m) tomados.add(m.id);
+    return m || null;
+  };
+  const edoTxt = m => concPendiente(m) ? '⏸ en Pendientes' : concIgnorado(m) ? '🚫 marcado No va' : concPuentes().has(m.id) ? '🔁 Puente' : '❓ en No encontré';
+  const tabla = (l, tot, rot, conPos) => `<div class="res-wrap"><table class="res" style="font-size:12.5px;min-width:0"><thead><tr>
+      <th style="text-align:left">Día</th><th style="text-align:left">Concepto</th><th>Monto</th>${conPos?'<th style="text-align:left">Cargo del banco que puede ser</th>':''}</tr></thead><tbody>
+    ${l.map(c => { const m = conPos ? posible(c) : null;
+      return `<tr><td style="text-align:left">${dow(c)} ${c.dia}</td><td style="text-align:left">${esc(c.cat)}</td>
+      <td style="font-weight:700">${money(c.monto)}</td>
+      ${conPos ? `<td style="text-align:left;white-space:normal">${m ? `${money(m.monto)} · ${esc(m.fecha.slice(8,10))} ${CONC_MESES[Number(m.fecha.slice(5,7))].slice(0,3)} · ${esc((m.nota || m.beneficiario || m.concepto).slice(0,40))} — <b>${edoTxt(m)}</b>` : '<span class="hint">ninguno en este estado</span>'}</td>` : ''}</tr>`; }).join('')}
+    <tr style="font-weight:900;background:#F6F4EE"><td></td><td style="text-align:left">${rot}</td><td>${money(Math.round(tot*100)/100)}</td>${conPos?'<td></td>':''}</tr>
   </tbody></table></div>`;
   return `<div class="panel"><div class="d-h3">De la planilla al banco · ${concNomMes(concMes)}</div>
     ${rosas.length ? `<p style="margin:0 0 6px;font-weight:800;color:#8A5A00">🟪 Karen las marcó como del banco, pero no salen en este estado de cuenta · ${rosas.length} · ${money(Math.round(tR*100)/100)}</p>
-      <p class="hint" style="margin:0 0 8px">No fueron efectivo. O salieron en el estado del mes siguiente (o anterior), o el monto que capturó no es el del banco. Revísalas al cargar ese otro estado.</p>
-      ${tabla(rosas, tR, 'Total por revisar')}`
+      <p class="hint" style="margin:0 0 8px">Karen las puso en rosa (pagadas por banco) pero todavía no están ligadas a un cargo. Casi siempre su cargo está en <b>Pendientes</b>, <b>Puente</b> o <b>No encontré</b> (la última columna te dice cuál): al resolver ese cargo, la casilla sale de esta lista. Si no hay ninguno, se pagó en el estado del mes siguiente.</p>
+      ${tabla(rosas, tR, 'Total por revisar', true)}`
       : `<p style="margin:0 0 6px;font-weight:800;color:#0B6E3F">✓ Todo lo que Karen marcó del banco está explicado.</p>`}
     <p style="margin:12px 0 0">💵 <b>Efectivo</b> (sin marca de Karen, no pasó por el banco): ${efe.length} gasto${efe.length===1?'':'s'} · <b>${money(Math.round(tE*100)/100)}</b>
       ${efe.length ? `<button class="btn-quiet" style="padding:3px 9px;min-height:0;font-size:11.5px" id="concVerEfe">ver</button>` : ''}</p>
