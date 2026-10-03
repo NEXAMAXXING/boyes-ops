@@ -219,6 +219,15 @@ function concEtiqueta(c, mov){
   return `${c.cat} · ${c.dia} ${CONC_MESES[Number(c.ym.slice(5,7))].slice(0,3)}${c.karen?' · 🟪 Karen':' · sin marca'}`;
 }
 
+/* Ventana de búsqueda: hacia atrás hasta 2 meses (a veces se paga una nota
+   de hace 5-8 semanas); hacia adelante, la holgura elegida. Las más cercanas
+   siguen ganando: lo de hace 2 meses solo sale si no hay nada más cerca. */
+const CONC_ATRAS = 62;
+function concEnVentana(c, mov){
+  const d = (new Date(mov.fecha+'T12:00:00') - new Date(c.fecha+'T12:00:00')) / 86400000;   // + = casilla antes del pago
+  return d >= 0 ? d <= Math.max(CONC_ATRAS, concVentana) : -d <= concVentana;
+}
+
 function concDias(a, b){
   return Math.abs((new Date(a+'T12:00:00') - new Date(b+'T12:00:00')) / 86400000);
 }
@@ -229,7 +238,7 @@ function concDias(a, b){
 function concCandidatos(mov, casillas){
   const libre = c =>
     (!c.usada || c.usada.mov === mov.id) &&
-    (c.fijo ? concFijoAplica(c, mov) : concDias(c.fecha, mov.fecha) <= concVentana);
+    (c.fijo ? concFijoAplica(c, mov) : concEnVentana(c, mov));
   /* Si no hay monto exacto, se ofrecen los parecidos (Karen a veces redondea:
      765 en vez de 765.88). Salen marcados y al confirmar se corrige la
      casilla al monto del banco. */
@@ -307,7 +316,7 @@ function concOtroRenglon(mov, casillas){
   const K = concProveedor(mov); if(!K) return [];
   return casillas.filter(c => !c.fijo && c.cat !== K && !c.usada &&
     Math.abs(c.monto - mov.monto) <= Math.max(5, mov.monto*0.005) &&
-    concDias(c.fecha, mov.fecha) <= concVentana);
+    concEnVentana(c, mov));
 }
 function concReparte(pagos, casillas){
   const pares = [];
@@ -838,7 +847,7 @@ function concView(){
       ${[['pendientes','Por revisar'],['sin','Sin apunte'],['ok','Confirmados'],['todos','Todos']].map(([k,t])=>
         `<button class="btn-quiet${concFiltro===k?' on':''}" data-concf="${k}"
            style="${concFiltro===k?'background:var(--navy);color:#fff':''}">${t}</button>`).join('')}
-      <label class="hint" style="margin-left:auto">Holgura
+      <label class="hint" style="margin-left:auto" title="Hacia atrás siempre busca hasta 2 meses">Días después del pago
         <select id="concVent" style="padding:5px 7px;border:1px solid #D8D2C4;border-radius:7px;font-family:inherit">
           ${[15,30,45,60,90].map(d=>`<option value="${d}"${d===concVentana?' selected':''}>${d} días</option>`).join('')}
         </select></label>
@@ -924,8 +933,8 @@ function concView(){
       h += `<div class="conc-cand" style="background:#FFF1EF">
         <span style="font-size:12.5px">${comp
           ? `Hay una casilla de este monto (${esc(concEtiqueta(comp, mov))}), pero le corresponde mejor a otro cargo del banco igual. Parece que falta capturar uno de los dos.`
-          : K ? `Este proveedor va en <b>${esc(K)}</b> y ahí no hay ninguna casilla libre de ese monto en ±${concVentana} días.`
-              : `No hay ninguna casilla de ese monto sin usar en ±${concVentana} días. O no está capturado, o el monto no coincide.`} ¿Qué es?</span></div>
+          : K ? `Este proveedor va en <b>${esc(K)}</b> y ahí no hay ninguna casilla libre de ese monto (2 meses antes a ${concVentana} días después).`
+              : `No hay ninguna casilla de ese monto sin usar entre 2 meses antes y ${concVentana} días después. O no está capturado, o el monto no coincide.`} ¿Qué es?</span></div>
       <div class="conc-opc">
         ${otros.length ? `<div class="conc-o" style="border-color:#E0A100;background:#FFF9E8"><b>🔀 ¿Karen lo puso en otro renglón?</b>
           <select data-cmvsel="${mid}">${otros.map(c=>`<option value="${esc(c.ym)}|${esc(c.clave)}">${esc(c.cat)} · ${c.dia} ${CONC_MESES[Number(c.ym.slice(5,7))].slice(0,3)} · ${money(c.monto)}</option>`).join('')}</select>
