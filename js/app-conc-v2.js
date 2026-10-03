@@ -196,6 +196,20 @@ function concCasillas(){
    dejó en rosa y Rod no lo ha puesto en naranja: hay servicios (fumigación,
    etc.) que se pagan al mes siguiente, pero si ese mes ya está verificado,
    este pago no puede ser de él. */
+/* Gastos compartidos: el IMSS (y el ISR) se pagan COMPLETOS desde la cuenta
+   de San Carlos, pero la mitad es de Guaymas. Guaymas le transfiere esa mitad
+   a la cuenta de San Carlos (traspaso de CTMAX-5991) y cada planilla lleva su
+   mitad. Así se vio en mayo: abono de $28,548.86 y el mismo día el pago
+   SIPARE de $57,097.79 = 2 × 28,548.86. */
+const CONC_COMPARTIDOS = { 'IMSS': true, 'ISR Y 2%': true };
+const CONC_OTRA = {1:2, 2:1};
+function concAbonoOtra(mov, mitad){
+  if(!concEdo) return null;
+  return concEdo.movs.filter(m => m.tipo==='abono' && Math.abs(m.monto - mitad) < 0.05 && concDias(m.fecha, mov.fecha) <= 7)
+    .sort((a,b)=>concDias(a.fecha,mov.fecha)-concDias(b.fecha,mov.fecha))[0] || null;
+}
+let concOtra = {};   // planillas de la OTRA sucursal (para ver si capturó su mitad)
+
 function concFijoAplica(c, mov){
   const dm = concMesDif(c.ym, mov.fecha.slice(0,7));
   if(dm === 0 || dm === 1) return true;
@@ -214,7 +228,8 @@ function concEtiqueta(c, mov){
   if(c.fijo){
     const dm = mov ? concMesDif(c.ym, mov.fecha.slice(0,7)) : 0;
     const nota = dm>0 ? ' (pagado por adelantado)' : (dm<0 ? ' (servicio de ese mes, se paga al siguiente · 🟪 Karen)' : '');
-    return `🔒 Gasto fijo ${c.cat} · ${concNomMes(c.ym)}${nota}`;
+    const comp = c.compartido ? ` · mitad ${(LOCS[finLoc]||'').replace(/^Boye's\s*/,'')} ${money(c.mitad)} (la otra mitad es de ${(LOCS[CONC_OTRA[finLoc]]||'').replace(/^Boye's\s*/,'')})` : '';
+    return `🔒 Gasto fijo ${c.cat} · ${concNomMes(c.ym)}${nota}${comp}`;
   }
   return `${c.cat} · ${c.dia} ${CONC_MESES[Number(c.ym.slice(5,7))].slice(0,3)}${c.karen?' · 🟪 Karen':' · sin marca'}`;
 }
@@ -245,7 +260,9 @@ function concCandidatos(mov, casillas){
   const holg = Math.max(5, mov.monto * 0.005);
   const K = concProveedor(mov);
   const delProv = c => !K || c.cat === K;
-  const exactos = casillas.filter(c => Math.abs(c.monto - mov.monto) < 0.01 && libre(c) && delProv(c));
+  const exactos = casillas.filter(c => Math.abs(c.monto - mov.monto) < 0.01 && libre(c) && delProv(c))
+    .concat(casillas.filter(c => c.fijo && CONC_COMPARTIDOS[c.cat] && Math.abs(c.monto*2 - mov.monto) < 0.05 && libre(c))
+      .map(c => ({...c, compartido: true, mitad: c.monto})));
   const cand = exactos.length ? exactos
     : casillas.filter(c => !c.fijo && Math.abs(c.monto - mov.monto) <= holg && libre(c) && delProv(c))
               .map(c => ({...c, aprox: true}));
@@ -279,7 +296,8 @@ const CONC_SEMILLA = [            // para arrancar mientras se junta historia
   [/YOREME/, 'CARNES YOREME'],
   [/SURTICHEF/, 'SURTICHEF'],
   [/MEGACABLE/, 'MEGACABLE'],
-  [/TELMEX|TELEFONOS DE MEXICO/, 'TELMEX']
+  [/TELMEX|TELEFONOS DE MEXICO/, 'TELMEX'],
+  [/SIPARE/, 'IMSS']
 ];
 function concBenClave(t){
   return String(t||'').toUpperCase()
@@ -384,6 +402,11 @@ async function concCargaMeses(){
         ? {ventas:row.ventas||{}, gastos_var:row.gastos_var||{}, gastos_fijos:row.gastos_fijos||{}, formato:row.formato||{}}
         : {ventas:{}, gastos_var:{}, gastos_fijos:{}, formato:{}};
     }
+    concOtra = {};
+    try{
+      const {data: od} = await sb.from('planilla_months').select('*').eq('location_id', CONC_OTRA[finLoc]).in('year_month', yms);
+      (od||[]).forEach(r => concOtra[r.year_month] = r);
+    }catch(e){}
   }catch(e){ concError = 'No pude leer las planillas de esos meses'; }
   finally{ concCargando = false; }
   render();
@@ -567,6 +590,27 @@ async function concCaptura(movId, cat, fecha, nota){
   await concConfirma(movId, `g|${cat}|${d}`, ym, nota);
 }
 
+/* Anotar la mitad en la planilla de la otra sucursal (mismo mes, mismo gasto
+   fijo), marcada en naranja porque ya se vio el abono y el pago. */
+async function concMitadOtra(ym, nom, mitad, movId){
+  const otra = CONC_OTRA[finLoc];
+  try{
+    const {data} = await sb.from('planilla_months').select('*').eq('location_id', otra).eq('year_month', ym).limit(1);
+    const b = (data && data[0]) || {ventas:{}, gastos_var:{}, gastos_fijos:{}, banco:{}, formato:{}};
+    const gf = b.gastos_fijos || {}, fm = b.formato || {};
+    gf[nom] = { ...(gf[nom]||{}), monto: mitad, pagado: true };
+    const k = `f|${nom}|monto`;
+    fm[k] = { ...(fm[k]||{}), bg: CONC_COLOR, nota: `Mitad del pago desde ${(LOCS[finLoc]||'')}` };
+    fm._conc = fm._conc || {};
+    fm._conc[k] = { mov: movId, monto: mitad, compartido_de: finLoc, por: user.name, cuando: new Date().toISOString() };
+    await sb.from('planilla_months').upsert({ location_id: otra, year_month: ym,
+      ventas: b.ventas||{}, gastos_var: b.gastos_var||{}, gastos_fijos: gf, banco: b.banco||{}, formato: fm,
+      created_by: user.name, updated_at: new Date().toISOString() }, {onConflict:'location_id,year_month'});
+    concOtra[ym] = { ...b, gastos_fijos: gf, formato: fm, year_month: ym, location_id: otra };
+    toast(`Mitad anotada en ${LOCS[otra]}`); render();
+  }catch(e){ toast('No se pudo guardar en la otra sucursal'); }
+}
+
 /* "Mover de renglón": Karen lo apuntó en otro concepto. Se quita de ahí y se
    pone en el concepto del proveedor, mismo día, ya con el monto del banco. */
 async function concMueve(movId, ym, claveVieja, catNueva){
@@ -635,6 +679,14 @@ async function concConfirma(movId, clave, ym, nota){
       concPend[ym] = concPend[ym] || {}; concPend[ym].gv = concPend[ym].gv || {};
       (concPend[ym].gv[cat] = concPend[ym].gv[cat] || {})[d] = mov.monto;
       P.formato._conc[clave].antes = cap;
+    }
+  }
+  if(clave.startsWith('f|') && mov){
+    const nom0 = clave.slice(2, clave.lastIndexOf('|'));
+    const m0 = planN((P.gastos_fijos?.[nom0]||{}).monto);
+    if(CONC_COMPARTIDOS[nom0] && Math.abs(m0*2 - mov.monto) < 0.05){
+      const ab = concAbonoOtra(mov, m0);
+      P.formato._conc[clave].compartido = {total: mov.monto, mitad: m0, abono: ab ? ab.id : null, abono_fecha: ab ? ab.fecha : null};
     }
   }
   if(clave.startsWith('f|')){
@@ -888,6 +940,19 @@ function concView(){
 
     if(estado==='confirmado'){
       const c = casillas.find(x=>x.usada && x.usada.mov===mov.id);
+      const comp = c.usada && c.usada.compartido;
+      if(comp){
+        const otra = CONC_OTRA[finLoc], otraN = (LOCS[otra]||'').replace(/^Boye's\s*/,'');
+        const nom = c.cat, O = concOtra[c.ym];
+        const enOtra = planN(((O||{}).gastos_fijos||{})[nom]?.monto);
+        h += `<div class="conc-cand" style="background:#EEF5FF;font-size:12.5px;flex-wrap:wrap">
+          🤝 Compartido · ${esc(nom)} ${concNomMes(c.ym)}: ${money(comp.mitad)} aquí + ${money(comp.mitad)} ${otraN}.
+          ${comp.abono ? `Abono de ${otraN} ✓ (${esc(comp.abono_fecha)}).` : `<b style="color:#C0261F">Sin abono de ${otraN}.</b>`}
+          ${Math.abs(enOtra - comp.mitad) < 0.05 ? `Planilla de ${otraN} ✓.`
+            : `<span>Planilla de ${otraN}: ${enOtra?money(enOtra):'no capturado'}.</span>
+               <button class="btn-quiet" data-cmitad="${esc(c.ym)}|${esc(nom)}|${comp.mitad}|${esc(mov.id)}">Anotar ${money(comp.mitad)} en ${otraN}</button>`}
+        </div>`;
+      }
       h += `<div class="conc-cand">
         <span style="font-size:12.5px">Va contra <b>${esc(concEtiqueta(c, mov))}</b>
           — lo confirmaste ${c.usada.por?`(${esc(c.usada.por)})`:''}</span>
@@ -897,6 +962,15 @@ function concView(){
                 style="margin-left:auto">Deshacer</button></div>`;
     } else if(estado==='propuesto'){
       const cand = rep.deMov.get(mov.id) || [];
+      const cc = cand.find(c => c.compartido);
+      if(cc){
+        const ab = concAbonoOtra(mov, cc.mitad);
+        const otraN = (LOCS[CONC_OTRA[finLoc]]||'').replace(/^Boye's\s*/,'');
+        h += `<div class="conc-cand" style="background:#EEF5FF;flex-direction:column;align-items:flex-start;gap:3px;font-size:12.5px">
+          <span>🤝 <b>Gasto compartido:</b> ${money(mov.monto)} = 2 × ${money(cc.mitad)}. La mitad de ${esc(cc.cat)} es de ${otraN}.</span>
+          <span>${ab ? `✅ ${otraN} sí abonó su mitad: ${money(ab.monto)} el ${esc(ab.fecha)}${ab.beneficiario||ab.concepto?` (${esc((ab.beneficiario||ab.concepto).slice(0,60))})`:''}.`
+                     : `⚠️ No encontré el abono de ${otraN} por ${money(cc.mitad)} (±7 días). Revísalo: puede que no lo haya transferido.`}</span></div>`;
+      }
       h += `<div class="conc-cand">
         <select data-conccand="${esc(mov.id)}">
           ${cand.slice(0,25).map((c,i)=>`<option value="${esc(c.ym)}|${esc(c.clave)}"${i?'':' selected'}>
@@ -1059,6 +1133,8 @@ function wireConc(){
   document.querySelectorAll('[data-cnotaok]').forEach(i=>i.addEventListener('change', ()=>{
     const [ym, ...r] = i.dataset.cnotaok.split('|'); concNota(r.join('|'), ym, i.value.trim()); }));
   document.querySelectorAll('.conc-nota').forEach(i=>i.addEventListener('keydown', e=>{ if(e.key==='Enter') i.blur(); }));
+  document.querySelectorAll('[data-cmitad]').forEach(b=>b.addEventListener('click', ()=>{
+    const [ym, nom, mitad, id] = b.dataset.cmitad.split('|'); concMitadOtra(ym, nom, Number(mitad), id); }));
   document.querySelectorAll('[data-cpok]').forEach(b=>b.addEventListener('click', ()=>{
     const id = b.dataset.cpok; concDejaPend(id, _v('data-cpnew', id).trim()); }));
   document.querySelectorAll('[data-cpquita]').forEach(b=>b.addEventListener('click', ()=>concQuitaPend(b.dataset.cpquita)));
