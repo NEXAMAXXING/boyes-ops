@@ -811,6 +811,12 @@ function concView(){
     .conc-mov.pend{border-left:4px solid #E0A100;background:#FFFCF3}
     .conc-mov.ign{border-left:4px solid #8A8F98;opacity:.8}
     .conc-opc{display:flex;flex-direction:column;gap:6px;margin-top:8px}
+    .conc-opc[hidden]{display:none}
+    .conc-rap{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;align-items:center}
+    .conc-rap button{padding:8px 14px;font-size:13px;min-height:0}
+    .conc-o select,.conc-o input[type=date]{flex:0 1 220px}
+    .conc-o button{padding:7px 12px;font-size:12.5px;min-height:0}
+    .conc-o .hint{flex-basis:100%;margin:0}
     .conc-o{display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:12.5px;padding:7px 9px;border:1px dashed #E1DCD0;border-radius:8px}
     .conc-o b{min-width:170px}
     .conc-o select,.conc-o input{padding:6px 8px;border:1px solid #D8D2C4;border-radius:7px;font-family:inherit;font-size:12.5px}
@@ -1007,9 +1013,14 @@ function concView(){
       h += `<div class="conc-cand" style="background:#FFF1EF">
         <span style="font-size:12.5px">${comp
           ? `Hay una casilla de este monto (${esc(concEtiqueta(comp, mov))}), pero le corresponde mejor a otro cargo del banco igual. Parece que falta capturar uno de los dos.`
-          : K ? `Este proveedor va en <b>${esc(K)}</b> y ahí no hay ninguna casilla libre de ese monto (2 meses antes a ${concVentana} días después).`
-              : `No hay ninguna casilla de ese monto sin usar entre 2 meses antes y ${concVentana} días después. O no está capturado, o el monto no coincide.`} ¿Qué es?</span></div>
-      <div class="conc-opc">
+          : K ? `Va en <b>${esc(K)}</b>, pero no hay casilla libre de ese monto.`
+              : `No encontré casilla de ese monto.`}</span></div>
+      <div class="conc-rap">
+        ${sug ? `<button class="btn-primary" data-crapcap="${mid}" data-crapcat="${esc(sug)}">✏️ Capturar en ${esc(sug)} · ${esc(mov.fecha.slice(8,10))} ${CONC_MESES[Number(mov.fecha.slice(5,7))].slice(0,3)}</button>` : ''}
+        <button class="${sug?'btn-quiet':'btn-primary'}" data-cpok="${mid}">⏸ Pendiente</button>
+        <button class="btn-quiet conc-masbtn" data-cmas="${mid}">Más opciones ▾</button>
+      </div>
+      <div class="conc-opc" data-cmasbox="${mid}" hidden>
         ${otros.length ? `<div class="conc-o" style="border-color:#E0A100;background:#FFF9E8"><b>🔀 ¿Karen lo puso en otro renglón?</b>
           <select data-cmvsel="${mid}">${otros.map(c=>`<option value="${esc(c.ym)}|${esc(c.clave)}">${esc(c.cat)} · ${c.dia} ${CONC_MESES[Number(c.ym.slice(5,7))].slice(0,3)} · ${money(c.monto)}</option>`).join('')}</select>
           <button class="btn-primary" data-cmvok="${mid}" data-cmvcat="${esc(K)}">Mover a ${esc(K)} y confirmar</button>
@@ -1019,14 +1030,12 @@ function concView(){
           <select data-cfym="${mid}">${mesesF.map(ym=>{
             const dm = concMesDif(ym, ymMov);
             return `<option value="${ym}"${dm===0?' selected':''}>${concNomMes(ym)}${dm>0?' (por adelantado)':dm<0?' (servicio del mes anterior)':''}</option>`;}).join('')}</select>
-          <button class="btn-primary" data-cfok="${mid}">Aplicar</button>
-          <span class="hint">Lo marca pagado y deja ${money(mov.monto)} como monto real de ese mes.</span></div>
+          <button class="btn-primary" data-cfok="${mid}">Aplicar</button></div>
         <div class="conc-o"><b>✏️ Capturarlo como gasto</b>
-          <select data-ccat="${mid}"><option value="">Concepto…</option>${cats.map(c=>`<option${c===sug?' selected':''}>${esc(c)}</option>`).join('')}</select>${K?`<span class="hint">sugerido por el proveedor: <b>${esc(K)}</b></span>`:''}
+          <select data-ccat="${mid}"><option value="">Concepto…</option>${cats.map(c=>`<option${c===sug?' selected':''}>${esc(c)}</option>`).join('')}</select>
           <input type="date" data-cfec="${mid}" value="${esc(mov.fecha)}">
           <input type="text" class="conc-nota" data-cnotacap="${mid}" placeholder="💬 Nota (opcional)">
-          <button class="btn-primary" data-ccok="${mid}">Capturar</button>
-          <span class="hint">Lo escribe en la planilla ese día y queda confirmado.</span></div>
+          <button class="btn-primary" data-ccok="${mid}">Capturar</button></div>
         <div class="conc-o" style="border-color:#E0A100"><b>⏸ Dejar pendiente</b>
           <input type="text" data-cpnew="${mid}" placeholder="Pregunta para Karen (ej. ¿2ª factura de Arca?)">
           <button class="btn-quiet" data-cpok="${mid}">Dejar pendiente</button></div>
@@ -1135,6 +1144,12 @@ function wireConc(){
   document.querySelectorAll('.conc-nota').forEach(i=>i.addEventListener('keydown', e=>{ if(e.key==='Enter') i.blur(); }));
   document.querySelectorAll('[data-cmitad]').forEach(b=>b.addEventListener('click', ()=>{
     const [ym, nom, mitad, id] = b.dataset.cmitad.split('|'); concMitadOtra(ym, nom, Number(mitad), id); }));
+  document.querySelectorAll('[data-crapcap]').forEach(b=>b.addEventListener('click', ()=>{
+    const id = b.dataset.crapcap, mov = concEdo.movs.find(m=>m.id===id);
+    if(mov) concCaptura(id, b.dataset.crapcat, mov.fecha, ''); }));
+  document.querySelectorAll('[data-cmas]').forEach(b=>b.addEventListener('click', ()=>{
+    const box = document.querySelector(`[data-cmasbox="${CSS.escape(b.dataset.cmas)}"]`);
+    if(box){ box.hidden = !box.hidden; b.textContent = box.hidden ? 'Más opciones ▾' : 'Menos ▴'; } }));
   document.querySelectorAll('[data-cpok]').forEach(b=>b.addEventListener('click', ()=>{
     const id = b.dataset.cpok; concDejaPend(id, _v('data-cpnew', id).trim()); }));
   document.querySelectorAll('[data-cpquita]').forEach(b=>b.addEventListener('click', ()=>concQuitaPend(b.dataset.cpquita)));
