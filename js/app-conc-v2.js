@@ -15,6 +15,9 @@
    no probaría nada.
    ============================================================ */
 
+/* Cuentas Inbursa de cada sucursal (últimos 4): San Carlos CT …3021,
+   Guaymas CTMAX …5991. Un traspaso entre ellas es dinero entre sucursales. */
+const CONC_CUENTAS = { '3021': 2, '5991': 1 };
 let concMes = null;        // mes del estado de cuenta, 'AAAA-MM'
 let concEdo = null;        // lo leído del PDF
 let concError = null;
@@ -33,6 +36,8 @@ const MESES_ABR = {ENE:1,FEB:2,MAR:3,ABR:4,MAY:5,JUN:6,JUL:7,AGO:8,SEP:9,OCT:10,
 function concClase(concepto, tipo){
   const c = (concepto||'').toUpperCase();
   if(/LIQUIDACION ADQ/.test(c))                     return 'deposito_tarjeta';
+  if(/DEVOLUCION ADQUIRENTE/.test(c))               return 'devolucion';
+  if(/ADMINISTRACION\s*-\s*RENTA|ADMINISTRACION DE CUENTA|MANEJO DE CUENTA|ANUALIDAD/.test(c)) return 'admin_cuenta';
   if(/TASA DE DESCTO|TASA DESCUENTO|IVA TASA/.test(c)) return 'comision';
   if(/TRASPASO ENTRE CUENTAS/.test(c))              return 'traspaso';
   if(/RENDIMIENTO|INTERES/.test(c))                 return 'rendimiento';
@@ -51,6 +56,7 @@ function concEsRuido(l){
   /* El pie de página del banco (dirección de Inbursa, tus datos, el RFC):
      cuando un cargo cae al final de la hoja, lo de abajo es esto y no un
      beneficiario. */
+  if(/Si desea recibir pagos|hacer del conocimiento|transferencias bancarias electr|Unidad Especializada|UNE\b|CONDUSEF/i.test(l)) return true;
   if(/PASEO DE LAS PALMAS|LOMAS DE CHAPULTEPEC|MIGUEL HIDALGO|CIUDAD DE MEXICO|C\.R\.\s*\d|RFC\s*BII|INSTITUCION DE BANCA|GRUPO FINANCIERO|LOTE \d+|EL CRESTON|SONORA, MEX|^\d{5}\s+\d{6,}-F$|RFC:\s*ZEZR/i.test(l)) return true;
   /* Basura de la marca de agua. Trae símbolos que ningún nombre de proveedor
      usa, y muy pocas letras en proporción a su largo. */
@@ -133,6 +139,13 @@ function concLee(lineas, anio){
                         .split(/-?\d[\d,]*\.\d{2}/)[0]
                         .replace(/\s+/g,' ').trim();
 
+    /* A veces el banco pone el concepto en el renglón de abajo
+       ("JUN. 30 4033691093 275.00 12,587.21" / "ADMINISTRACION - RENTA"). */
+    if(!concepto && i+1 < lineas.length){
+      const sig = String(lineas[i+1]).replace(/\s+/g,' ').trim();
+      if(!/^[A-Z]{3}\.\s*\d{0,2}/.test(sig) && !concEsRuido(sig)) concepto = sig.slice(0,120);
+    }
+
     /* Beneficiario: las dos o tres líneas siguientes, saltando el renglón del
        banco destino y la basura de la marca de agua. */
     let beneficiario = '';
@@ -147,6 +160,30 @@ function concLee(lineas, anio){
       break;
     }
 
+    /* Traspasos entre cuentas Inbursa: el renglón de abajo dice a qué cuenta
+       (alias + últimos 4) y de quién es:
+         "TRASPASO DE TU CUENTA (CT) - 50024453021 A CUENTA" / "(EFE) - 3151 - DE KARLA FERNANDA JAUREGUI" / "BOCANEGRA"
+         "TRASPASO DE (CTMAX) - 5991 - DE RODRIGO ZEÑA" / "ZARAGOZA A TU CUENTA (CT) - 50024453021"
+       Se junta el bloque y se saca la cuenta de la OTRA parte y su nombre. */
+    let cuenta = null;
+    if(/TRASPASO ENTRE CUENTAS/i.test(concepto)){
+      let blo = [];
+      for(let k=1; k<=4 && i+k<lineas.length; k++){
+        const sig = String(lineas[i+k]).replace(/\s+/g,' ').trim();
+        if(/^[A-Z]{3}\.\s*\d{0,2}/.test(sig)) break;
+        if(concEsRuido(sig) && !/TRASPASO|CUENTA/i.test(sig)) continue;
+        blo.push(sig);
+      }
+      const t = blo.join(' ').replace(/\s+/g,' ');
+      const sale = t.match(/TU CUENTA\s*\([^)]*\)\s*-\s*\d+\s*A\s*(?:CUENTA\s*)?\(([^)]+)\)\s*-\s*(\d{3,})\s*-\s*DE\s+([A-ZÁÉÍÓÚÑ .]+)/i);
+      const entra = t.match(/TRASPASO DE\s*\(([^)]+)\)\s*-\s*(\d{3,})\s*-\s*DE\s+([A-ZÁÉÍÓÚÑ .]+?)\s+A TU CUENTA/i);
+      const mm = sale || entra;
+      if(mm){
+        cuenta = { alias: mm[1].trim(), ult4: mm[2].slice(-4), nombre: mm[3].replace(/\s+/g,' ').trim(), sale: !!sale };
+        beneficiario = `${cuenta.nombre} (${cuenta.alias}-${cuenta.ult4})`;
+      }
+    }
+
     /* La nota que escribió Karen al transferir ("20260515 LIMPIEZA BOYES SC"):
        viene con la fecha AAAAMMDD al frente. Es lo más específico del
        movimiento: dice el concepto, la sucursal y a veces el mes. */
@@ -159,6 +196,7 @@ function concLee(lineas, anio){
     }
 
     movs.push({
+      cuenta,
       nota, tarjeta: !conBenef && tipo === 'cargo',
       id: `${anio}-${String(mesN).padStart(2,'0')}-${String(dia).padStart(2,'0')}|${ref||i}|${monto.toFixed(2)}`,
       fecha: `${anio}-${String(mesN).padStart(2,'0')}-${String(dia).padStart(2,'0')}`,
@@ -166,6 +204,14 @@ function concLee(lineas, anio){
       monto, tipo, saldo, clase: concClase(concepto, tipo)
     });
     saldoPrev = saldo; diaPrev = dia; mesPrev = mesN;
+  }
+
+  /* Un traspaso que SALE es un pago como cualquier otro (a Karla por
+     desechables, a Rod a su cuenta como RZ…), así que se concilia contra la
+     planilla. Si la cuenta destino es de la otra sucursal, se marca. */
+  for(const m of movs){
+    if(m.clase === 'traspaso' && m.tipo === 'cargo'){ m.clase = 'pago'; m.traspaso = true; }
+    if(m.cuenta && CONC_CUENTAS[m.cuenta.ult4]) m.sucCuenta = CONC_CUENTAS[m.cuenta.ult4];
   }
 
   if(!movs.length) return {error:'No encontré movimientos. ¿El PDF es una foto escaneada? Esos todavía no se pueden leer.'};
@@ -236,6 +282,14 @@ function concAbonoOtra(mov, mitad){
 }
 let concOtra = {};   // planillas de la OTRA sucursal (para ver si capturó su mitad)
 
+function concReembolso(mov){
+  if(!concEdo) return null;
+  const otra = CONC_OTRA[finLoc];
+  return concEdo.movs.filter(m => m.tipo==='abono' && Math.abs(m.monto - mov.monto) < 0.05 && concDias(m.fecha, mov.fecha) <= 7)
+    .sort((a,b) => ((b.cuenta && CONC_CUENTAS[b.cuenta.ult4]===otra)?1:0) - ((a.cuenta && CONC_CUENTAS[a.cuenta.ult4]===otra)?1:0)
+                   || concDias(a.fecha,mov.fecha) - concDias(b.fecha,mov.fecha))[0] || null;
+}
+
 function concFijoAplica(c, mov){
   const nm = concNotaMes(mov);
   if(nm) return c.ym === nm;            // la nota dice de qué mes es ("RENTA BOYES SC MARZO")
@@ -299,7 +353,7 @@ function concCandidatos(mov, casillas){
     .concat(casillas.filter(c => c.fijo && CONC_COMPARTIDOS[c.cat] && Math.abs(c.monto*2 - mov.monto) < 0.05 && libre(c))
       .map(c => ({...c, compartido: true, mitad: c.monto})));
   const cand = exactos.length ? exactos
-    : casillas.filter(c => !c.fijo && Math.abs(c.monto - mov.monto) <= holg && libre(c) && delProv(c))
+    : casillas.filter(c => (!c.fijo || (K && c.cat === K)) && Math.abs(c.monto - mov.monto) <= holg && libre(c) && delProv(c))
               .map(c => ({...c, aprox: true}));
   const nom = (mov.beneficiario + ' ' + mov.concepto + ' ' + (mov.nota||'')).toUpperCase();
   const puntos = c => {
@@ -308,7 +362,7 @@ function concCandidatos(mov, casillas){
     if(pal.some(x => nom.includes(x.toUpperCase()))) p -= 100;   // el nombre coincide: gana
     return p;
   };
-  return cand.sort((a,b)=>puntos(a)-puntos(b));
+  return cand.map(c => ({...c, _p: puntos(c)})).sort((a,b)=>a._p-b._p);
 }
 
 /* Reparto: cada casilla se le propone a UN solo movimiento. Si dos cargos
@@ -375,7 +429,7 @@ function concNotaMes(mov){
 }
 function concNotaSucursal(mov){
   const t = String(mov.nota||'').toUpperCase();
-  if(/GUAYMAS|\bGYS\b/.test(t)) return 1;
+  if(/GUAYMAS|\bGY[SMN]\b/.test(t)) return 1;
   if(/\bSC\b|SAN CARLOS/.test(t)) return 2;
   return null;
 }
@@ -418,10 +472,13 @@ function concReparte(pagos, casillas){
   const pares = [];
   for(const mov of pagos){
     if(['comision','traspaso','rendimiento','deposito_tarjeta'].includes(mov.clase) || mov.tipo==='abono') continue;
-    if(concIgnorado(mov) || concPendiente(mov) || casillas.some(c => c.usada && c.usada.mov === mov.id)) continue;
+    if(concIgnorado(mov) || concPendiente(mov) || (concNotaSucursal(mov) && concNotaSucursal(mov) !== finLoc) || casillas.some(c => c.usada && c.usada.mov === mov.id)) continue;
     concCandidatos(mov, casillas).forEach((c, i) => pares.push({mov, c, i, aprox: !!c.aprox}));
   }
-  pares.sort((a,b) => (a.aprox-b.aprox) || (a.i-b.i));
+  /* Se reparte por qué tan bien coincide cada par (fecha y nombre), no por el
+     orden en que salen los cargos: así la gasolina de $1,000 del 23 se queda
+     con la casilla del 23 aunque el cargo del 18 también sea de $1,000. */
+  pares.sort((a,b) => (a.aprox-b.aprox) || (a.c._p-b.c._p) || (a.i-b.i));
   const tomada = new Set(), deMov = new Map(), compite = new Map();
   for(const {mov, c} of pares){
     if(tomada.has(c.clave+'@'+c.ym)){ if(!deMov.has(mov.id)) compite.set(mov.id, c); continue; }
@@ -441,6 +498,10 @@ function concEstadoDe(mov, casillas, rep){
   if(mov.tipo === 'abono') return 'aparte';
   if(concIgnorado(mov)) return 'ignorado';
   if(concPendiente(mov)) return 'pendiente';
+  /* La nota dice que es de la OTRA sucursal ("COCA BOYES GYN" pagado desde
+     San Carlos): no va en esta planilla; lo que importa es que la otra
+     sucursal lo haya reembolsado. */
+  if(concNotaSucursal(mov) && concNotaSucursal(mov) !== finLoc && !casillas.some(c => c.usada && c.usada.mov === mov.id)) return 'otra_suc';
   const yaUsada = casillas.find(c => c.usada && c.usada.mov === mov.id);
   if(yaUsada) return 'confirmado';
   if(rep) return rep.deMov.has(mov.id) ? 'propuesto' : 'sin_apunte';
@@ -730,10 +791,14 @@ function concCuadreHTML(estados, casillas){
   const G = {};
   const suma = (k, m) => { (G[k] = G[k] || {n:0, t:0}); G[k].n++; G[k].t += m.monto; };
   const com = concComisiones();
+  const adm = concAdminCuenta();
+  const admEnPla = (() => { const P = concMeses[concMes]||{}; return adm && Math.abs(planN(((P.gastos_fijos||{})[CONC_ADMIN]||{}).monto) - adm.suma) < 0.01; })();
   const comEnPla = (() => { const P = concMeses[concMes]||{}; return Math.abs(planN(((P.gastos_fijos||{})['COMISIONES BANCARIAS']||{}).monto) - (com?com.monto:0)) < 0.01; })();
   for(const m of cargos){
     if(m.clase==='comision'){ suma(comEnPla ? 'com_ok' : 'com_falta', m); continue; }
     if(m.clase==='traspaso'){ suma('traspaso', m); continue; }
+    if(m.clase==='admin_cuenta'){ suma(admEnPla ? 'adm_ok' : 'adm_falta', m); continue; }
+    if(m.clase==='devolucion'){ suma('devolucion', m); continue; }
     if(m.clase!=='pago'){ suma('otro', m); continue; }
     const e = est.get(m.id);
     if(e==='confirmado'){
@@ -747,15 +812,19 @@ function concCuadreHTML(estados, casillas){
     ['fijo',      '🔒 Gastos fijos confirmados', '#0B6E3F'],
     ['com_ok',    '🏦 Comisiones bancarias (ya en la planilla)', '#0B6E3F'],
     ['ignorado',  '🚫 No va en la planilla', '#5B6472'],
+    ['otra_suc',  '📍 Pagos de la otra sucursal', '#1B4FA8'],
     ['com_falta', '🏦 Comisiones bancarias — falta anotarlas', '#E0A100'],
     ['traspaso',  '↔️ Traspasos entre cuentas / a personas — revisar', '#E0A100'],
+    ['adm_ok',    '🏦 Administración de cuenta Inbursa (ya en la planilla)', '#0B6E3F'],
+    ['adm_falta', '🏦 Administración de cuenta Inbursa — falta anotarla', '#E0A100'],
+    ['devolucion','↩️ Devoluciones de la terminal a clientes', '#5B6472'],
     ['otro',      'Otros cargos del banco', '#E0A100'],
     ['propuesto', '🟡 Encontrados, falta que confirmes', '#E0A100'],
     ['pendiente', '⏸ Pendientes con Karen', '#E0A100'],
     ['sin_apunte','❓ Sin explicar', '#C0261F']
   ];
   const sinExp = (G.sin_apunte||{t:0}).t;
-  const abiertos = ['com_falta','traspaso','otro','propuesto','pendiente','sin_apunte'].reduce((s,k)=>s+((G[k]||{}).t||0),0);
+  const abiertos = ['adm_falta','com_falta','traspaso','otro','propuesto','pendiente','sin_apunte'].reduce((s,k)=>s+((G[k]||{}).t||0),0);
   return `<div class="panel"><div class="d-h3">Cuadre de egresos · ${concNomMes(concMes)}</div>
     <p class="hint" style="margin:0 0 8px">Todo lo que salió de la cuenta, y qué lo explica. Cuando "Sin explicar" está en $0, cada peso del estado de cuenta está considerado.</p>
     <div class="res-wrap"><table class="res" style="font-size:13px;min-width:0"><tbody>
@@ -811,6 +880,30 @@ async function concEfectivo(ym, clave, si){
   if(si) f.efectivo = true; else delete f.efectivo;
   if(Object.keys(f).length) P.formato[clave] = f; else delete P.formato[clave];
   render();
+  try{ await concGuarda(ym); }catch(e){ toast('No se pudo guardar — revisa tu conexión'); }
+}
+
+/* Administración de cuenta Inbursa ("ADMINISTRACION - RENTA" + su IVA):
+   cargo fijo de cada mes. Va en su propio gasto fijo. */
+const CONC_ADMIN = 'ADMINISTRACION DE CUENTA INBURSA';
+function concAdminCuenta(){
+  if(!concEdo) return null;
+  const lista = concEdo.movs.filter(m => m.tipo==='cargo' && m.clase==='admin_cuenta' && m.fecha.slice(0,7)===concMes);
+  if(!lista.length) return null;
+  return { lista, suma: Math.round(lista.reduce((s,m)=>s+m.monto,0)*100)/100 };
+}
+async function concAdminAnota(monto){
+  const ym = concMes, P = concMeses[ym]; if(!P) return;
+  const k = `f|${CONC_ADMIN}|monto`;
+  P.gastos_fijos = P.gastos_fijos || {};
+  P.gastos_fijos[CONC_ADMIN] = { code: 'CB', ...(P.gastos_fijos[CONC_ADMIN]||{}), monto, pagado: true };
+  P.formato = P.formato || {};
+  P.formato[k] = { ...(P.formato[k]||{}), bg: CONC_COLOR, nota: 'Del estado de cuenta (administración + IVA)' };
+  P.formato._conc = P.formato._conc || {};
+  P.formato._conc[k] = { mov: 'admin-'+ym, monto, por: user.name, cuando: new Date().toISOString() };
+  concPend[ym] = concPend[ym] || {}; concPend[ym].gf = concPend[ym].gf || {};
+  concPend[ym].gf[CONC_ADMIN] = { ...P.gastos_fijos[CONC_ADMIN] };
+  render(); toast('Administración de cuenta anotada');
   try{ await concGuarda(ym); }catch(e){ toast('No se pudo guardar — revisa tu conexión'); }
 }
 
@@ -995,7 +1088,8 @@ function concChip(estado){
     sin_apunte : ['Sin apunte', '#C0261F', '#FFE4E1'],
     aparte     : ['Va aparte', '#5B6472', '#EDEDED'],
     ignorado   : ['No va', '#5B6472', '#EDEDED'],
-    pendiente  : ['⏸ Pendiente', '#8A5A00', '#FFE7B0']
+    pendiente  : ['⏸ Pendiente', '#8A5A00', '#FFE7B0'],
+    otra_suc   : ['📍 Otra sucursal', '#1B4FA8', '#EAF1FD']
   };
   const [t,c,b] = M[estado] || M.aparte;
   return `<span class="conc-chip" style="color:${c};background:${b}">${t}</span>`;
@@ -1125,10 +1219,12 @@ function concView(){
       sec==='sin'   ? estado==='sin_apunte' :
       sec==='ign'   ? estado==='ignorado' :
       sec==='pend'  ? estado==='pendiente' :
+      sec==='otra'  ? estado==='otra_suc' :
       sec==='ok'    ? estado==='confirmado' : true);
   const secciones = concFiltro==='pendientes'
     ? [['match','✅ Encontré la casilla — por confirmar', 'Revisa y confirma. Al confirmar se queda aquí en verde.'],
        ['sin','❓ No los encontré en la planilla', 'Ninguna casilla libre con ese monto. Elige qué es cada uno.'],
+       ['otra','📍 Pagos de la otra sucursal', 'La nota de la transferencia dice que es de la otra sucursal. No van en esta planilla; aquí se ve si ya te reembolsaron.'],
        ['pend','⏸ Pendientes de checar con Karen', 'Salen en el PDF para mandárselo. Cuando sepas qué es, dale "Ya lo resolví" y vuelve a su lugar.'],
        ['ign','🚫 Marcados como "no va en la planilla"', '']]
     : [[concFiltro==='ok'?'ok':concFiltro==='sin'?'sin':'todos', '', '']];
@@ -1197,6 +1293,11 @@ function concView(){
         <input type="text" class="conc-nota" data-cnotaprop="${esc(mov.id)}" placeholder="💬 Nota (opcional)">
         <button class="btn-primary" data-concok="${esc(mov.id)}">Confirmar</button>
         <button class="btn-quiet" data-cpok="${esc(mov.id)}" title="No lo reconozco: checar con Karen">⏸ Pendiente</button></div>`;
+    } else if(estado==='otra_suc'){
+      const re = concReembolso(mov), otraN = (LOCS[concNotaSucursal(mov)]||'').replace(/^Boye's\s*/,'');
+      h += `<div class="conc-cand" style="background:${re?'#EAF7EE':'#FFF1EF'};font-size:12.5px">
+        ${re ? `✅ ${otraN} ya lo reembolsó: ${money(re.monto)} el ${esc(re.fecha)}${re.beneficiario?` (${esc(re.beneficiario)})`:''}.`
+             : `⚠️ Es de ${otraN} y no encontré el reembolso por ${money(mov.monto)} (±7 días). Cóbraselo a ${otraN}.`}</div>`;
     } else if(estado==='pendiente'){
       const pd = concPendiente(mov);
       h += `<div class="conc-cand" style="background:#FFF6E0">
@@ -1280,6 +1381,19 @@ function concView(){
         ${com.dec && Math.abs(com.dec - com.suma) > 0.5 ? `<br>Sumé ${money(com.suma)} en cargos de comisión; el banco declara ${money(com.dec)}. Se usa lo que declara el banco.` : ''}</p>
       ${ok ? `<p style="margin:0;font-weight:700;color:#0B6E3F">✓ Ya está en la planilla y en naranja.</p>`
            : `<button class="btn-primary" data-ccom="${com.monto}">Anotar ${money(com.monto)} en COMISIONES BANCARIAS de ${concNomMes(concMes)}</button>`}
+    </div>`;
+  }
+
+  /* ---- administración de cuenta ---- */
+  const adm = concAdminCuenta();
+  if(adm){
+    const P = concMeses[concMes] || {};
+    const enPla = planN(((P.gastos_fijos||{})[CONC_ADMIN]||{}).monto);
+    const ok = Math.abs(enPla - adm.suma) < 0.01;
+    h += `<div class="panel"><div class="d-h3">Administración de cuenta Inbursa · ${concNomMes(concMes)}</div>
+      <p class="hint" style="margin:0 0 8px">${adm.lista.map(m=>`${esc(m.concepto)} ${money(m.monto)}`).join(' + ')} = <b>${money(adm.suma)}</b> · cargo fijo del banco cada mes.</p>
+      ${ok ? `<p style="margin:0;font-weight:700;color:#0B6E3F">✓ Ya está en la planilla (gasto fijo ${CONC_ADMIN}).</p>`
+           : `<button class="btn-primary" data-cadm="${adm.suma}">Anotar ${money(adm.suma)} en ${CONC_ADMIN} de ${concNomMes(concMes)}</button>`}
     </div>`;
   }
 
@@ -1395,6 +1509,7 @@ function wireConc(){
   document.querySelectorAll('[data-cefeq]').forEach(a=>a.addEventListener('click', e=>{ e.preventDefault();
     const [ym, ...r] = a.dataset.cefeq.split('|'); concEfectivo(ym, r.join('|'), false); }));
   document.getElementById('concVerEfe')?.addEventListener('click', ()=>{ const b=document.getElementById('concEfeBox'); if(b) b.hidden=!b.hidden; });
+  document.querySelectorAll('[data-cadm]').forEach(b=>b.addEventListener('click', ()=>concAdminAnota(Number(b.dataset.cadm))));
   document.querySelectorAll('[data-ccom]').forEach(b=>b.addEventListener('click', ()=>concComAnota(Number(b.dataset.ccom))));
   document.querySelectorAll('[data-cpok]').forEach(b=>b.addEventListener('click', ()=>{
     const id = b.dataset.cpok; concDejaPend(id, _v('data-cpnew', id).trim()); }));
