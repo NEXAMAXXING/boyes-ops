@@ -77,6 +77,11 @@ function concLee(lineas, anio){
     if((m = l.match(/\bCARGOS\s+([\d,]+\.\d{2})/i)))        primero('cargos', numMX(m[1]));
     /* "COMISIONES EFECTIVAMENTE COBRADAS ... EN EL PERIODO 9,419.71" */
     if((m = l.match(/EN EL PERIODO\s+([\d,]+\.\d{2})/i)))  primero('comisiones', numMX(m[1]));
+    /* Resumen gráfico del final: "Comisiones 5,455.16" (y "Otros Cargos"). */
+    if((m = l.match(/(?:^|\s)Comisiones\s+([\d,]+\.\d{2})/i)))  primero('comisiones_graf', numMX(m[1]));
+    if((m = l.match(/Otros\s+Cargos\s+([\d,]+\.\d{2})/i)))       primero('otros_cargos', numMX(m[1]));
+    /* Resumen gráfico del final: "Comisiones 5,455.16" */
+    if((m = l.match(/\bComisiones\s+([\d,]+\.\d{2})/i)))   primero('comisiones', numMX(m[1]));
 
     /* El día tiene que ir SOLO: sin el lookahead, "ABR. 4202626514 ..." le
        arrancaba el "42" al número de referencia y salían fechas de abril 42. */
@@ -620,7 +625,8 @@ function concComisiones(){
   if(!concEdo) return null;
   const lista = concEdo.movs.filter(m => m.tipo==='cargo' && m.clase==='comision' && m.fecha.slice(0,7)===concMes);
   const suma = Math.round(lista.reduce((s,m)=>s+m.monto,0)*100)/100;
-  const dec = (concEdo.declarado||{}).comisiones;
+  const D = concEdo.declarado||{};
+  const dec = D.comisiones_graf != null ? D.comisiones_graf : D.comisiones;
   const grupos = {};
   lista.forEach(m => {
     const c = m.concepto.toUpperCase();
