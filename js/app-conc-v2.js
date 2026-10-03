@@ -202,7 +202,7 @@ function concEtiqueta(c, mov){
     const nota = dm>0 ? ' (pagado por adelantado)' : (dm<0 ? ' (pagado tarde)' : '');
     return `🔒 Gasto fijo ${c.cat} · ${concNomMes(c.ym)}${nota}`;
   }
-  return `${c.cat} · ${c.dia} de ${c.ym}${c.karen?' · rosa (Karen ya la marcó)':' · sin marca'}`;
+  return `${c.cat} · ${c.dia} ${CONC_MESES[Number(c.ym.slice(5,7))].slice(0,3)}${c.karen?' · 🟪 Karen':' · sin marca'}`;
 }
 
 function concDias(a, b){
@@ -676,7 +676,7 @@ function concView(){
       h += `<div class="conc-cand">
         <select data-conccand="${esc(mov.id)}">
           ${cand.slice(0,25).map((c,i)=>`<option value="${esc(c.ym)}|${esc(c.clave)}"${i?'':' selected'}>
-            ${c.aprox?'≈ ':''}${esc(concEtiqueta(c, mov))} · ${money(c.monto)}${c.aprox?` (capturado ${money(c.monto)}, banco ${money(mov.monto)} — se corrige al confirmar)`:''}${c.fijo?'':` (${concDias(c.fecha,mov.fecha)} días antes)`}
+            ${c.aprox?'≈ ':''}${esc(concEtiqueta(c, mov))} · ${c.aprox?`Karen puso ${money(c.monto)} → queda ${money(mov.monto)}`:money(c.monto)}${c.fijo||c.aprox?'':` · ${concDias(c.fecha,mov.fecha)} días antes`}
           </option>`).join('')}
         </select>
         <button class="btn-primary" data-concok="${esc(mov.id)}">Confirmar</button></div>`;
