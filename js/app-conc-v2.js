@@ -227,6 +227,9 @@ function concLee(lineas, anio){
 
 /* Todas las casillas de gasto de los meses cargados, con su estado: libre,
    o ya consumida por otro movimiento del banco. */
+/* ¿Esta casilla ya la tomó este movimiento? (una casilla puede cubrirse con
+   varios cargos que suman su monto: luz + paneles = LUZ + PANEL SOLAR). */
+function concUsaMov(c, id){ return !!(c.usada && (c.usada.mov === id || (c.usada.movs||[]).includes(id))); }
 function concCasillas(){
   const out = [];
   for(const [ym, P] of Object.entries(concMeses)){
@@ -341,7 +344,7 @@ function concDias(a, b){
    cercanía en días y por parecido del nombre del beneficiario con el concepto. */
 function concCandidatos(mov, casillas){
   const libre = c =>
-    (!c.usada || c.usada.mov === mov.id) &&
+    (!c.usada || concUsaMov(c, mov.id)) &&
     (c.fijo ? concFijoAplica(c, mov) : concEnVentana(c, mov));
   /* Si no hay monto exacto, se ofrecen los parecidos (Karen a veces redondea:
      765 en vez de 765.88). Salen marcados y al confirmar se corrige la
@@ -352,14 +355,27 @@ function concCandidatos(mov, casillas){
   const exactos = casillas.filter(c => Math.abs(c.monto - mov.monto) < 0.01 && libre(c) && delProv(c))
     .concat(casillas.filter(c => c.fijo && CONC_COMPARTIDOS[c.cat] && Math.abs(c.monto*2 - mov.monto) < 0.05 && libre(c))
       .map(c => ({...c, compartido: true, mitad: c.monto})));
-  const cand = exactos.length ? exactos
-    : casillas.filter(c => (!c.fijo || (K && c.cat === K)) && Math.abs(c.monto - mov.monto) <= holg && libre(c) && delProv(c))
-              .map(c => ({...c, aprox: true}));
+  /* Los parecidos van DESPUÉS de los exactos (el reparto los deja al final):
+     si la casilla exacta ya se la llevó otro cargo, todavía queda la parecida
+     (CEA: la de mayo exacta la tomó el pago de mayo; la de junio dice 1,097). */
+  const cand = exactos.concat(
+    casillas.filter(c => (!c.fijo || (K && c.cat === K) || c.karen) && Math.abs(c.monto - mov.monto) >= 0.01 && Math.abs(c.monto - mov.monto) <= holg && libre(c) && delProv(c))
+            .map(c => ({...c, aprox: true})));
+  /* Va en K pero Karen lo puso en otro renglón (la trampa en MANTENIMIENTO):
+     si no hay nada en K, se ofrece la casilla rosa del MISMO monto en otro
+     renglón, avisando que está en otro lado. */
+  if(!cand.length && K){
+    casillas.filter(c => !c.fijo && c.karen && c.cat !== K && Math.abs(c.monto - mov.monto) < 0.01 && libre(c))
+      .forEach(c => cand.push({...c, otro: K}));
+  }
   const nom = (mov.beneficiario + ' ' + mov.concepto + ' ' + (mov.nota||'')).toUpperCase();
   const puntos = c => {
     let p = c.fijo ? Math.abs(concMesDif(c.ym, mov.fecha.slice(0,7)))*15 : concDias(c.fecha, mov.fecha);
     const pal = c.cat.split(/[^A-ZÑ]+/i).filter(x=>x.length>3);
     if(pal.some(x => nom.includes(x.toUpperCase()))) p -= 100;   // el nombre coincide: gana
+    /* Traspaso a la cuenta de la otra sucursal: casi siempre es su mitad de un
+       gasto compartido (IMSS, 3%), no una compra del súper. */
+    if(mov.sucCuenta && !c.fijo) p += 60;
     return p;
   };
   return cand.map(c => ({...c, _p: puntos(c)})).sort((a,b)=>a._p-b._p);
@@ -407,7 +423,7 @@ const CONC_NOTA_SIN = [
   [/PANADER/, 'PANADERIA'], [/MANTENIMIENTO/, 'MANTENIMIENTO'], [/\bAUTO\b|VEHICULO/, 'VEHICULO RZ'],
   [/\bIMSS\b/, 'IMSS'], [/\bLUZ\b|\bCFE\b/, 'LUZ + PANEL SOLAR MENSUALIDAD'], [/TELMEX/, 'TELMEX'],
   [/MEGACABLE/, 'MEGACABLE'], [/FUMIGA|FUMUGA/, 'FUMUGACION'], [/UNIFORME/, 'UNIFORMES'],
-  [/DESECHABLE/, 'DESECHABLES'], [/NOMINA/, 'NOMINA'], [/PROPINA/, 'PROPINA'], [/MARISCO/, 'MARISCO']
+  [/DESECHABLE/, 'DESECHABLES'], [/\bCEA\b|AGUA POTABLE/, 'AGUA CEA'], [/PANEL/, 'LUZ + PANEL SOLAR MENSUALIDAD'], [/NOMINA/, 'NOMINA'], [/PROPINA/, 'PROPINA'], [/MARISCO/, 'MARISCO']
 ];
 function concConceptos(){
   return new Set([...(typeof PLAN_GV!=='undefined'?PLAN_GV:[]), ...(typeof PLAN_GF!=='undefined'?PLAN_GF:[]),
@@ -474,7 +490,7 @@ function concReparte(pagos, casillas){
   const pares = [];
   for(const mov of pagos){
     if(['comision','traspaso','rendimiento','deposito_tarjeta'].includes(mov.clase) || mov.tipo==='abono') continue;
-    if(concIgnorado(mov) || concPendiente(mov) || (concNotaSucursal(mov) && concNotaSucursal(mov) !== finLoc) || casillas.some(c => c.usada && c.usada.mov === mov.id)) continue;
+    if(concIgnorado(mov) || concPendiente(mov) || (concNotaSucursal(mov) && concNotaSucursal(mov) !== finLoc) || casillas.some(c => concUsaMov(c, mov.id))) continue;
     concCandidatos(mov, casillas).forEach((c, i) => pares.push({mov, c, i, aprox: !!c.aprox}));
   }
   /* Se reparte por qué tan bien coincide cada par (fecha y nombre), no por el
@@ -524,12 +540,12 @@ function concEstadoDe(mov, casillas, rep){
   if(mov.tipo === 'abono') return 'aparte';
   if(concIgnorado(mov)) return 'ignorado';
   if(concPendiente(mov)) return 'pendiente';
-  if(concPuentes().has(mov.id) && !casillas.some(c => c.usada && c.usada.mov === mov.id)) return 'puente';
+  if(concPuentes().has(mov.id) && !casillas.some(c => concUsaMov(c, mov.id))) return 'puente';
   /* La nota dice que es de la OTRA sucursal ("COCA BOYES GYN" pagado desde
      San Carlos): no va en esta planilla; lo que importa es que la otra
      sucursal lo haya reembolsado. */
-  if(concNotaSucursal(mov) && concNotaSucursal(mov) !== finLoc && !casillas.some(c => c.usada && c.usada.mov === mov.id)) return 'otra_suc';
-  const yaUsada = casillas.find(c => c.usada && c.usada.mov === mov.id);
+  if(concNotaSucursal(mov) && concNotaSucursal(mov) !== finLoc && !casillas.some(c => concUsaMov(c, mov.id))) return 'otra_suc';
+  const yaUsada = casillas.find(c => concUsaMov(c, mov.id));
   if(yaUsada) return 'confirmado';
   if(rep) return rep.deMov.has(mov.id) ? 'propuesto' : 'sin_apunte';
   return concCandidatos(mov, casillas).length ? 'propuesto' : 'sin_apunte';
@@ -866,7 +882,7 @@ function concCuadreHTML(estados, casillas){
     if(m.clase!=='pago'){ suma('otro', m); continue; }
     const e = est.get(m.id);
     if(e==='confirmado'){
-      const c = casillas.find(x => x.usada && x.usada.mov === m.id);
+      const c = casillas.find(x => concUsaMov(x, m.id));
       suma(c && c.fijo ? 'fijo' : 'planilla', m);
     } else suma(e || 'sin_apunte', m);
   }
@@ -1048,6 +1064,45 @@ async function concNota(clave, ym, texto){
   if(texto) f.nota = texto; else delete f.nota;
   if(Object.keys(f).length) P.formato[clave] = f; else delete P.formato[clave];
   toast(texto ? 'Nota guardada' : 'Nota quitada');
+  try{ await concGuarda(ym); }catch(e){ toast('No se pudo guardar — revisa tu conexión'); }
+}
+
+/* Varios cargos que juntos pagan UN gasto fijo (luz $1,521 + paneles
+   $8,958.70 = LUZ + PANEL SOLAR $10,479.70). Solo entre cargos sin apunte
+   del mismo concepto, y la suma tiene que dar exacto. */
+function concSumas(estados, casillas){
+  const sin = estados.filter(e => e.estado==='sin_apunte').map(e => e.mov);
+  const out = new Map();
+  for(const c of casillas.filter(c => c.fijo && !c.usada)){
+    const g = sin.filter(m => !out.has(m.id) && concProveedor(m)===c.cat && concFijoAplica(c, m)).slice(0, 10);
+    if(g.length < 2) continue;
+    let mejor = null;
+    for(let mask=1; mask < (1<<g.length); mask++){
+      const sub = g.filter((_,i) => mask & (1<<i));
+      if(sub.length < 2) continue;
+      if(Math.abs(sub.reduce((t,m)=>t+m.monto,0) - c.monto) < 0.01 && (!mejor || sub.length < mejor.length)) mejor = sub;
+    }
+    if(mejor) mejor.forEach(m => out.set(m.id, {c, movs: mejor}));
+  }
+  return out;
+}
+async function concConfirmaSuma(ids, ym, clave){
+  const P = concMeses[ym]; if(!P) return;
+  const movs = ids.map(id => concEdo.movs.find(m=>m.id===id)).filter(Boolean);
+  P.formato = P.formato || {}; P.formato._conc = P.formato._conc || {};
+  P.formato._conc[clave] = {mov: ids[0], movs: ids, monto: Math.round(movs.reduce((t,m)=>t+m.monto,0)*100)/100,
+    partes: movs.map(m => ({fecha: m.fecha, monto: m.monto, ben: m.beneficiario||m.concepto||'', nota_banco: m.nota||''})),
+    ben: movs.map(m => m.nota || m.beneficiario || m.concepto).join(' + '),
+    por: user.name, cuando: new Date().toISOString()};
+  P.formato[clave] = { ...(P.formato[clave]||{}), bg: CONC_COLOR };
+  if(clave.startsWith('f|')){
+    const nom = clave.slice(2, clave.lastIndexOf('|'));
+    P.gastos_fijos[nom] = { ...(P.gastos_fijos[nom]||{}), pagado: true };
+    concPend[ym] = concPend[ym] || {}; concPend[ym].gf = concPend[ym].gf || {};
+    concPend[ym].gf[nom] = { ...(concPend[ym].gf[nom]||{}), pagado: true };
+  }
+  ids.forEach(id => concRecientes.add(id));
+  render(); toast(`Listo — ${ids.length} cargos juntos en ${clave.split('|')[1]}`);
   try{ await concGuarda(ym); }catch(e){ toast('No se pudo guardar — revisa tu conexión'); }
 }
 
@@ -1292,6 +1347,7 @@ function concView(){
   const pagos = concEdo.movs.filter(m=>m.tipo==='cargo' && m.clase==='pago');
   const rep = concReparte(pagos, casillas);
   const estados = pagos.map(m=>({mov:m, estado:concEstadoDe(m, casillas, rep)}));
+  const sumas = concSumas(estados, casillas);
   const nOk   = estados.filter(x=>x.estado==='confirmado').length;
   const nProp = estados.filter(x=>x.estado==='propuesto').length;
   const nSin  = estados.filter(x=>x.estado==='sin_apunte').length;
@@ -1360,7 +1416,7 @@ function concView(){
       </div>`;
 
     if(estado==='confirmado'){
-      const c = casillas.find(x=>x.usada && x.usada.mov===mov.id);
+      const c = casillas.find(x=>concUsaMov(x, mov.id));
       const comp = c.usada && c.usada.compartido;
       if(comp){
         const otra = CONC_OTRA[finLoc], otraN = (LOCS[otra]||'').replace(/^Boye's\s*/,'');
@@ -1395,7 +1451,7 @@ function concView(){
       h += `<div class="conc-cand">
         <select data-conccand="${esc(mov.id)}">
           ${cand.slice(0,25).map((c,i)=>`<option value="${esc(c.ym)}|${esc(c.clave)}"${i?'':' selected'}>
-            ${c.aprox?'≈ ':''}${esc(concEtiqueta(c, mov))} · ${c.aprox?`Karen puso ${money(c.monto)} → queda ${money(mov.monto)}`:money(c.monto)}${c.fijo||c.aprox?'':` · ${concDiasTxt(c, mov)}`}
+            ${c.otro?`⚠️ Karen lo puso en ${esc(c.cat)} (va en ${esc(c.otro)}) · `:''}${c.aprox?'≈ ':''}${esc(concEtiqueta(c, mov))} · ${c.aprox?`Karen puso ${money(c.monto)} → queda ${money(mov.monto)}`:money(c.monto)}${c.fijo||c.aprox?'':` · ${concDiasTxt(c, mov)}`}
           </option>`).join('')}
           ${(() => { const K = concProveedor(mov); const dd = mov.fecha.slice(8,10)+' '+CONC_MESES[Number(mov.fecha.slice(5,7))].slice(0,3);
             const lista = [...new Set([...(K?[K]:[]), ...(typeof PLAN_GV!=='undefined'?PLAN_GV:[])])];
@@ -1453,6 +1509,17 @@ function concView(){
           ? `Hay una casilla de este monto (${esc(concEtiqueta(comp, mov))}), pero le corresponde mejor a otro cargo del banco igual. Parece que falta capturar uno de los dos.`
           : K ? `Va en <b>${esc(K)}</b>, pero no hay casilla libre de ese monto.`
               : `No encontré casilla de ese monto.`}</span></div>
+      ${(() => { const su = sumas.get(mov.id); if(!su) return '';
+          const otros = su.movs.filter(m => m.id !== mov.id);
+          return `<div class="conc-cand" style="background:#EAF7EE;flex-wrap:wrap;font-size:12.5px">
+            🧩 Junto con ${otros.map(m => `<b>${money(m.monto)}</b> (${esc(m.fecha.slice(8,10))} ${CONC_MESES[Number(m.fecha.slice(5,7))].slice(0,3)}${m.nota?` · ${esc(m.nota)}`:''})`).join(' y ')}
+            suman <b>${money(su.c.monto)}</b> = <b>${esc(concEtiqueta(su.c, mov))}</b>.
+            <button class="btn-primary" data-csuma="${esc(su.movs.map(m=>m.id).join(','))}" data-csumak="${esc(su.c.ym)}|${esc(su.c.clave)}">Confirmar los ${su.movs.length} juntos</button></div>`; })()}
+      ${(() => { const nar = casillas.filter(c => !c.fijo && c.usada && c.usada.mov==='excel' && Math.abs(c.monto - mov.monto) < 0.01 && concEnVentana(c, mov));
+          if(!nar.length) return '';
+          return `<div class="conc-cand" style="background:#FFF4E5;flex-wrap:wrap;font-size:12.5px">
+            🟧 Ya está en naranja (verificado en tu Excel) ${nar.map(c => `<b>${esc(c.cat)} · ${c.dia} ${CONC_MESES[Number(c.ym.slice(5,7))].slice(0,3)}</b>`).join(' / ')} con este mismo monto. Si es este pago, ya estaba conciliado.
+            ${nar.slice(0,3).map(c => `<button class="btn-quiet" data-cnar="${mid}" data-cnark="${esc(c.ym)}|${esc(c.clave)}">Es ${esc(c.cat)} · ${c.dia} ${CONC_MESES[Number(c.ym.slice(5,7))].slice(0,3)}</button>`).join('')}</div>`; })()}
       <div class="conc-rap">
         <button class="btn-primary" data-cpok="${mid}" data-cpdef="${esc(concNotaFalta(mov))}">⏸ Pendiente: Karen no lo anotó</button>
         ${(() => { const Kf = concProveedor(mov); const ymF = concNotaMes(mov) || mov.fecha.slice(0,7);
@@ -1663,6 +1730,10 @@ function wireConc(){
     const id = b.dataset.cpok; concDejaPend(id, _v('data-cpnew', id).trim() || b.dataset.cpdef || ''); }));
   document.getElementById('concSinTodos')?.addEventListener('click', e=>{
     const ids = (e.currentTarget.dataset.ids||'').split(',').filter(Boolean); if(ids.length) concDejaPendVarios(ids); });
+  document.querySelectorAll('[data-csuma]').forEach(b=>b.addEventListener('click', ()=>{
+    const [ym, ...r] = b.dataset.csumak.split('|'); concConfirmaSuma(b.dataset.csuma.split(','), ym, r.join('|')); }));
+  document.querySelectorAll('[data-cnar]').forEach(b=>b.addEventListener('click', ()=>{
+    const [ym, ...r] = b.dataset.cnark.split('|'); concConfirma(b.dataset.cnar, r.join('|'), ym, 'Ya estaba en naranja (Excel)'); }));
   document.querySelectorAll('[data-cpquita]').forEach(b=>b.addEventListener('click', ()=>concQuitaPend(b.dataset.cpquita)));
   document.querySelectorAll('[data-cpte]').forEach(b=>b.addEventListener('click', ()=>concPuenteNoVa(b.dataset.cpte, b.dataset.cptek||'', b.dataset.cpten||'Puente')));
   document.querySelectorAll('[data-concok1]').forEach(b=>b.addEventListener('click', ()=>{
